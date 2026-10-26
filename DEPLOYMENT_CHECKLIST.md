@@ -1,14 +1,19 @@
-# Deployment gate
+# بوابة المراجعة — لا تنشر قبل إتمامها
 
-- [ ] TypeScript/build/test pass, no placeholder production routes
-- [ ] Auth and verified invite flow configured
-- [ ] RLS policies fully implemented and tested for each role and cross-administration attacks
-- [ ] All health data are aggregate; no identifiable student records
-- [ ] Server-side lock uses Africa/Cairo; exact 16:00 Sunday bound tested
-- [ ] Historical approved revision retained during amendment review
-- [ ] Target approval and historic changes audited
-- [ ] Vision-only second KG excluded from all comprehensive aggregates
-- [ ] Full Ministry Excel mapping validated using the actual 2026–27 workbook
-- [ ] No real data imported into a demo environment
-- [ ] Private repo / restricted hosting / secrets protection / backup & restore tested
-- [ ] Official hosting and privacy approvals obtained before rollout
+- [ ] مراجعة مستقلة لمخطط قاعدة البيانات ودوال SECURITY DEFINER وكل RLS على مشروع Supabase TEST.
+- [ ] إعادة اختبارات الأدوار والتجاوز المباشر لـ REST على مشروع الاختبار المستضاف.
+- [ ] تعطيل التسجيل العام، اختبار الدعوة واستعادة كلمة المرور عبر SMTP فعلي، سياسة كلمة المرور وMFA للمدير، تحديد عناوين redirect المسموح بها.
+- [ ] اختبار انتهاء الجلسة وإبطال الحساب وتغيير الأدوار، وسياسة حذف مستخدم له سجل تاريخي.
+- [ ] HTTPS وSecure cookies وحدود الطلبات والمهلات؛ مراجعة CSP وتقليل unsafe-inline وتوفير nonces قبل النشر العام.
+- [ ] مراجعة الساعة والمنطقة Africa/Cairo وحدود الإغلاق وإعادة الفتح في قاعدة الهدف.
+- [ ] مطابقة قائمة مؤشرات الفحص الشامل وتصنيفات المراحل مع المديرية؛ مراجعة عزل العام/الأزهري وvision-only KG2.
+- [ ] استلام ملف الوزارة الأصلي، توثيق hash ومطابقة الأعمدة والترتيب والحسابات، بناء اختبارات fixture حقيقية قبل فتح تصدير الوزارة.
+- [ ] مراجعة snapshots والمستهدفات التاريخية وحالات الاعتماد المتزامن وتعديل المسودات المتزامن.
+- [ ] اختبار الأداء على حجم متوقع، نقل الترشيح/التجميع إلى قاعدة البيانات عند اللزوم، عدم الاعتماد على حد القراءة الحالي للتشغيل واسع النطاق.
+- [ ] مراجعة منطقة تجهيز الاستيراد قبل بناء ترحيل البيانات؛ لا تستخدم معلومات تحدد هوية الطالب.
+- [ ] تشغيل CI على GitHub ومراجعة PR. نتائج التشغيل المحلي لا تثبت أن CI البعيد قد نُفذ.
+- [ ] توثيق الاحتفاظ بالتدقيق، النسخ الاحتياطي والاستعادة، المراقبة ومراجعة الوصول الإداري.
+- [ ] موافقات الجهة المالكة والاستضافة والخصوصية والأمان؛ إبقاء المستودع والاستضافة مقيدين.
+- [ ] تأكيد عدم وجود seed DEMO أو مفاتيح اختبار أو بيانات حقيقية في بيئة التشغيل.
+
+لم يُنشر هذا الفرع. الاختبارات محلية وببيانات DEMO معزولة، ولا تغني عن هذه المراجعة.

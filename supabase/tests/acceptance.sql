@@ -1,0 +1,95 @@
+-- Uses a minimal auth.uid()/auth.users fixture. Tests real PostgreSQL RLS/RPCs,
+-- not GoTrue, email delivery, API gateway or production Supabase configuration.
+begin;
+create function public.test_assert(ok boolean,description text) returns void language plpgsql as $$begin if ok is distinct from true then raise exception 'FAIL: %',description; end if; raise notice 'PASS: %',description; end$$;
+create function public.test_denied(command text,expected text,description text) returns void language plpgsql as $$declare failed boolean:=false; begin begin execute command; exception when others then if position(expected in sqlerrm)=0 then raise exception 'UNEXPECTED ERROR for %: %',description,sqlerrm; end if; failed:=true; end; perform public.test_assert(failed,description); end$$;
+grant execute on function public.test_assert(boolean,text),public.test_denied(text,text,text) to authenticated,anon;
+insert into auth.users values ('00000000-0000-0000-0000-000000000001'),('00000000-0000-0000-0000-000000000002'),('00000000-0000-0000-0000-000000000003'),('00000000-0000-0000-0000-000000000004'),('00000000-0000-0000-0000-000000000005');
+insert into public.administrations(id,name_ar) values ('10000000-0000-0000-0000-000000000001','DEMO administration A'),('10000000-0000-0000-0000-000000000002','DEMO administration B');
+insert into public.user_profiles values
+('00000000-0000-0000-0000-000000000001','directorate_admin',null),
+('00000000-0000-0000-0000-000000000002','directorate_viewer',null),
+('00000000-0000-0000-0000-000000000003','administration_data_entry','10000000-0000-0000-0000-000000000001'),
+('00000000-0000-0000-0000-000000000004','administration_data_entry','10000000-0000-0000-0000-000000000002');
+insert into public.school_years(id,label,starts_on,ends_on) values('20000000-0000-0000-0000-000000000001','DEMO test year',current_date-30,current_date+370);
+insert into public.program_versions(id,school_year_id,code,name_ar,version,enabled,grades,indicators) values
+('30000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','comprehensive','DEMO comprehensive',1,true,'["kg1","primary1","primary4","preparatory1","secondary1"]','["anemia","dental"]'),
+('30000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001','vision','DEMO vision',1,true,'["kg2"]','["visual_impairment","strabismus","ptosis"]');
+create function public.demo_lines(n int default 10,sec text default 'general',pid uuid default '30000000-0000-0000-0000-000000000001',grade text default 'primary1') returns jsonb language sql as $$select jsonb_build_array(jsonb_build_object('program_version_id',pid,'sector',sec,'grade_code',grade,'screened',n,'findings','{}'::jsonb))$$;
+create function public.demo_week() returns date language sql as $$select (now() at time zone 'Africa/Cairo')::date-extract(dow from now() at time zone 'Africa/Cairo')::int$$;
+grant execute on function public.demo_lines(int,text,uuid,text),public.demo_week() to authenticated;
+set local role authenticated;
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
+select public.test_assert((select count(*)=1 from public.administrations),'data entry sees assigned administration only');
+select public.test_denied($q$select public.save_report('10000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001',public.demo_week(),public.demo_lines())$q$,'FORBIDDEN','RPC denies other administration');
+select public.test_denied($q$insert into public.user_profiles values('00000000-0000-0000-0000-000000000005','directorate_admin',null)$q$,'permission denied','direct privilege escalation denied');
+select public.test_denied($q$select public.record_audit('forged','test',null)$q$,'permission denied','internal helper cannot be called');
+select public.test_denied($q$select public.replace_lines(null,'[]')$q$,'permission denied','internal line writer cannot be called');
+select public.test_denied($q$select public.save_report('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',public.demo_week()-1,public.demo_lines())$q$,'check constraint','Saturday report rejected');
+select public.test_denied($q$select public.save_report('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',public.demo_week()-14,public.demo_lines())$q$,'REPORT_LOCKED','late creation denied');
+select public.test_denied($q$select public.save_report('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',public.demo_week(),public.demo_lines(10,'general','30000000-0000-0000-0000-000000000001','kg2'))$q$,'INVALID_PROGRAM_GRADE','kg2 cannot enter comprehensive');
+select public.save_report('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',public.demo_week(),public.demo_lines());
+select public.test_assert((select count(*)=1 from public.weekly_submissions),'one consolidated weekly submission');
+select public.test_denied($q$select public.save_report('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',public.demo_week(),public.demo_lines())$q$,'unique constraint','duplicate active revision rejected');
+select public.test_denied($q$update public.report_lines set screened=999$q$,'permission denied','direct fact update denied');
+select public.test_denied($q$select public.transition_report((select id from public.submission_revisions limit 1),'approve')$q$,'FORBIDDEN','data entry cannot approve');
+select public.transition_report((select id from public.submission_revisions limit 1),'submit');
+select public.test_assert((select status='provisional' from public.submission_revisions limit 1),'submission is provisional');
+select public.test_assert((select official_revision_id is null from public.weekly_submissions limit 1),'provisional not official');
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000004';
+select public.test_assert((select count(*)=0 from public.weekly_submissions),'other entry cannot read submissions');
+select public.test_assert((select count(*)=0 from public.report_lines),'other entry cannot read facts');
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000002';
+select public.test_assert((select count(*)=1 from public.report_lines),'viewer reads submitted facts');
+select public.test_denied($q$select public.save_report('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',public.demo_week(),public.demo_lines())$q$,'FORBIDDEN','viewer cannot create report');
+select public.test_denied($q$select public.transition_report((select id from public.submission_revisions limit 1),'approve')$q$,'FORBIDDEN','viewer cannot approve');
+select public.test_denied($q$select public.propose_target('10000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','general','primary1',100)$q$,'FORBIDDEN','viewer cannot propose targets');
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
+select public.test_denied($q$select public.transition_report((select id from public.submission_revisions limit 1),'return','')$q$,'REASON_REQUIRED','return requires reason');
+select public.transition_report((select id from public.submission_revisions limit 1),'approve');
+select public.test_assert((select official_revision_id is not null from public.weekly_submissions limit 1),'approval installs official pointer');
+select public.create_report_snapshot('20000000-0000-0000-0000-000000000001',null,null,null,'comprehensive','general','','official');
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
+select public.save_report('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',public.demo_week(),public.demo_lines(20));
+select public.transition_report((select id from public.submission_revisions where revision_number=2),'submit');
+select public.test_assert((select l.screened=10 from public.report_lines l join public.weekly_submissions s on s.official_revision_id=l.revision_id),'amendment leaves approved revision official');
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
+select public.transition_report((select id from public.submission_revisions where revision_number=2),'approve');
+select public.test_assert((select sum(l.screened)=20 from public.report_lines l join public.weekly_submissions s on s.official_revision_id=l.revision_id),'amendment replaces not adds');
+select public.test_assert((select count(*)=1 from public.submission_revisions where status='superseded'),'old approved revision retained');
+select public.test_assert((select (payload->'lines'->0->>'screened')::int=10 from public.report_snapshots limit 1),'snapshot preserves old official counts after amendment');
+select public.test_denied($q$update public.report_snapshots set payload='{}'$q$,'permission denied','snapshots cannot be edited directly');
+select public.test_denied($q$select public.reopen_report((select id from public.weekly_submissions limit 1),now()+interval '1 day','')$q$,'INVALID_REOPEN','reopening requires reason');
+select public.reopen_report((select id from public.weekly_submissions limit 1),now()+interval '1 day','DEMO audited reason');
+select public.test_assert((select count(*)=1 from public.audit_log where action='reopened'),'reopening is audited');
+select public.propose_target('10000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','general','primary1',100);
+select public.test_assert((select count(*)=0 from public.target_versions where status='approved'),'proposed targets not official');
+select public.review_target((select id from public.target_versions where version=1),true);
+select public.propose_target('10000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000001','general','primary1',200);
+select public.test_assert((select target_count=100 from public.target_versions where status='approved'),'pending target leaves official unchanged');
+select public.review_target((select id from public.target_versions where version=2),true);
+select public.test_assert((select sum(target_count)=200 from public.target_versions where status='approved'),'target approval replaces not sums');
+select public.test_assert((select count(*)=1 from public.target_versions where status='superseded' and effective_at is not null),'historical target retained with timestamp');
+select public.test_denied($q$select public.assign_role(auth.uid(),'directorate_viewer')$q$,'CANNOT_CHANGE_OWN_ROLE','admin cannot remove own access');
+select public.create_school_year('DEMO next year',current_date+371,current_date+730);
+select public.save_program((select id from public.school_years where label='DEMO next year'),'vision','DEMO disabled vision',false,'["kg2"]','["visual_impairment","strabismus","ptosis"]');
+select public.test_assert((select enabled from public.program_versions where id='30000000-0000-0000-0000-000000000002'),'next year disabling preserves past program');
+select public.test_denied($q$select public.save_program((select id from public.school_years where label='2026-27'),'comprehensive','DEMO invalid kg2',true,'["kg2"]','[]')$q$,'PROTECTED_2026_RULES','2026 comprehensive grades protected');
+select public.test_denied($q$select public.stage_import('10000000-0000-0000-0000-000000000001','[{"name":"patient"}]','[]')$q$,'INVALID_IMPORT','unknown identifying import fields rejected');
+select public.save_report('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',public.demo_week()-14,public.demo_lines());
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
+select public.test_denied($q$select public.transition_report((select r.id from public.submission_revisions r join public.weekly_submissions s on s.id=r.submission_id where s.week_start=public.demo_week()-14),'submit')$q$,'REPORT_LOCKED','existing draft cannot submit after cutoff');
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000001';
+select public.reopen_report((select id from public.weekly_submissions where week_start=public.demo_week()-14),now()+interval '1 day','DEMO correction window');
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000003';
+select public.transition_report((select r.id from public.submission_revisions r join public.weekly_submissions s on s.id=r.submission_id where s.week_start=public.demo_week()-14),'submit');
+select public.test_assert((select r.status='provisional' from public.submission_revisions r join public.weekly_submissions s on s.id=r.submission_id where s.week_start=public.demo_week()-14),'audited reopening permits late correction');
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000004';
+select public.test_assert((select count(*)=0 from public.report_snapshots),'entry cannot read directorate snapshots');
+select public.test_assert((select count(*)=0 from public.target_versions),'entry cannot read another administration targets');
+set local role anon;
+select public.test_denied($q$select * from public.report_lines$q$,'permission denied','anonymous fact read denied');
+select public.test_denied($q$select public.save_report(null,null,null,null)$q$,'permission denied','anonymous mutation denied');
+reset role;
+select public.test_assert(public.report_deadline('2026-10-25')='2026-11-01T14:00:00Z'::timestamptz,'deadline follows Cairo DST');
+rollback;

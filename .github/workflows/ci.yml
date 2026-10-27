@@ -44,6 +44,7 @@ jobs:
       - run: npm run test:e2e
       - name: Download pinned Supabase Auth and PostgREST release binaries
         run: |
+          ls -d /usr/lib/postgresql/*/bin >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql; }
           mkdir -p "$RUNNER_TEMP/stack/auth"
           curl -fsSL -o "$RUNNER_TEMP/stack/pgrst.tar.xz" https://github.com/PostgREST/postgrest/releases/download/v12.2.3/postgrest-v12.2.3-linux-static-x64.tar.xz
           tar -xJf "$RUNNER_TEMP/stack/pgrst.tar.xz" -C "$RUNNER_TEMP/stack"
@@ -52,7 +53,6 @@ jobs:
       - name: Integration (Auth + invitations e-mail + PostgREST + PostgreSQL + browser, DEMO only)
         run: bash scripts/test-integration-local.sh
         env:
-          PG_BIN: /usr/lib/postgresql/16/bin
           GOTRUE_DIR: ${{ runner.temp }}/stack/auth
           POSTGREST_BIN: ${{ runner.temp }}/stack/postgrest
       - run: npm audit --omit=dev

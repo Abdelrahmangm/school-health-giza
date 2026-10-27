@@ -8,7 +8,12 @@
 #               POSTGREST_BIN (postgrest binary). Optional: SEED_VOLUME=1, PLAYWRIGHT_ARGS.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-: "${PG_BIN:?Set PG_BIN to the PostgreSQL bin directory}"
+# Find the newest installed PostgreSQL when PG_BIN is unset or wrong (runner images change versions).
+if [[ -z "${PG_BIN:-}" || ! -x "${PG_BIN}/initdb" ]]; then
+  PG_BIN=$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)
+fi
+if [[ -z "${PG_BIN:-}" || ! -x "${PG_BIN}/initdb" ]]; then echo "PostgreSQL server binaries not found; install postgresql or set PG_BIN" >&2; exit 1; fi
+echo "Using PostgreSQL binaries from $PG_BIN"
 : "${GOTRUE_DIR:?Set GOTRUE_DIR to the extracted supabase/auth release}"
 : "${POSTGREST_BIN:?Set POSTGREST_BIN to the postgrest binary}"
 state=$(mktemp -d /tmp/school-health-local.XXXXXX)

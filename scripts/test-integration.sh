@@ -25,14 +25,27 @@ docker network create "$tag" >/dev/null
 last_step="start PostgreSQL container"
 docker run -d --name "$tag-db" --network "$tag" --network-alias db -e POSTGRES_PASSWORD=DEMO-local-test-only postgres:17-alpine >/dev/null
 last_step="wait for PostgreSQL readiness"
+# The postgres Docker entrypoint briefly starts a socket-only bootstrap server,
+# then shuts it down before the final TCP server starts. A socket pg_isready
+# check can pass during bootstrap and race with that shutdown.
+# Verify a real SQL query over TCP, using ONLY the disposable container password.
 database_ready=0
 for attempt in {1..45}; do
-  if docker exec "$tag-db" pg_isready -U postgres -d postgres >/dev/null 2>&1; then database_ready=1; break; fi
+  if docker exec -e PGPASSWORD=DEMO-local-test-only "$tag-db" \
+    psql -h 127.0.0.1 -p 5432 -U postgres -d postgres -Atqc 'select 1' 2>/dev/null | grep -qx 1; then
+    database_ready=1
+    break
+  fi
   sleep 1
 done
-if [[ "$database_ready" -ne 1 ]]; then echo "PostgreSQL did not become ready" >&2; false; fi
+if [[ "$database_ready" -ne 1 ]]; then
+  echo "PostgreSQL final TCP server did not become ready" >&2
+  docker logs --tail 90 "$tag-db" >&2 || true
+  false
+fi
 last_step="create disposable roles and auth bootstrap"
-docker exec -i "$tag-db" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+docker exec -e PGPASSWORD=DEMO-local-test-only -i "$tag-db" \
+  psql -h 127.0.0.1 -p 5432 -U postgres -d postgres -v ON_ERROR_STOP=1 <<'SQL'
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;

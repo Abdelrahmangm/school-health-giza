@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { previewImport, type Administration } from "@/lib/domain";
 import { stageImport } from "@/app/actions";
 export function ImportForm({
@@ -14,8 +14,11 @@ export function ImportForm({
     typeof previewImport
   > | null>(null);
   const [error, setError] = useState("");
+  // Mark client interactivity ready so forms cannot be exercised before hydration.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
   return (
-    <form action={stageImport} className="card stack">
+    <form action={stageImport} className="card stack" data-hydrated={hydrated ? "true" : "false"}>
       <label>
         الإدارة الموحّدة
         <select name="administration_id" required>

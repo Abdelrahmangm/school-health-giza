@@ -3,7 +3,8 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { stageImportBatches } from "@/app/actions";
 import { readCsv, readXlsx, sha256Hex, MAX_FILE_BYTES, type Sheet } from "@/lib/spreadsheet";
-import { buildImport, detectSector, type ImportOptions, type ImportResult } from "@/lib/import";
+import { buildImport, detectSector, weekdayName, type ImportOptions, type ImportResult, type Override, type Submission } from "@/lib/import";
+import { Temporal } from "@js-temporal/polyfill";
 import { errorMessages } from "@/lib/messages";
 import { labels, type Administration, type Program, type SchoolYear } from "@/lib/domain";
 
@@ -27,6 +28,106 @@ const meaningText = (m: ImportResult["plan"]["columns"][number]["meaning"]) => {
       return "اتجاهل: " + m.reason;
   }
 };
+
+const shortDate = (iso: string) => {
+  const d = Temporal.PlainDate.from(iso);
+  return `${d.day}/${d.month}`;
+};
+const weekText = (iso: string) => `${shortDate(iso)} – ${shortDate(Temporal.PlainDate.from(iso).add({ days: 6 }).toString())}`;
+const statusText: Record<Submission["status"], string> = { kept: "هيتاخد", superseded: "اتغطّى بإرسال أحدث", excluded: "مستبعد" };
+
+function SubmissionTable({ list, onChange }: { list: Submission[]; onChange: (row: number, o: Override) => void }) {
+  const [onlyAttention, setOnlyAttention] = useState(false);
+  const attention = (s: Submission) => s.status !== "kept" || s.notes.length > 0 || s.errors.length > 0 || s.late || s.overridden;
+  const shown = onlyAttention ? list.filter(attention) : list;
+  return (
+    <details open className="submissions-review">
+      <summary>
+        مراجعة الإرسالات ({list.filter((s) => s.status === "kept").length.toLocaleString("ar-EG")} هيتاخدوا من {list.length.toLocaleString("ar-EG")})
+      </summary>
+      <p className="field-help">
+        كل صف هنا إرسال من الفورم. الأسبوع بيتحسب لوحده: اللي يوصل من الأربع لحد التلات اللي بعده بيتحسب على الأسبوع (الأحد–السبت) اللي بدأ قبله،
+        والموعد الرسمي الأحد ٤ العصر. لو إدارة بعتت نفس أعداد المفحوصين تاني، بيتعامل كتعديل لنفس البلاغ. تقدر تغيّر الأسبوع أو تشيل علامة «يتاخد» لأي
+        إرسال.
+      </p>
+      <label className="inline">
+        <input type="checkbox" checked={onlyAttention} onChange={(e) => setOnlyAttention(e.target.checked)} /> اعرض اللي محتاج مراجعة بس
+      </label>
+      <div className="table-wrap">
+        <table className="submission-table">
+          <thead>
+            <tr>
+              <th>يتاخد</th>
+              <th>صف</th>
+              <th>الإدارة</th>
+              <th>وقت الإرسال</th>
+              <th>الأسبوع</th>
+              <th>المفحوصين</th>
+              <th>الحالة والملاحظات</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((s) => {
+              const base = Temporal.PlainDate.from(s.proposedWeek);
+              const weeks = [-3, -2, -1, 0, 1, 2].map((n) => base.add({ days: 7 * n }).toString());
+              if (!weeks.includes(s.week)) weeks.push(s.week);
+              return (
+                <tr key={s.row} className={s.status === "kept" ? (s.errors.length ? "row-invalid" : undefined) : "row-muted"}>
+                  <td>
+                    <input
+                      type="checkbox"
+                      checked={s.status !== "excluded"}
+                      aria-label={"يتاخد إرسال صف " + s.row}
+                      onChange={(e) => onChange(s.row, { include: e.target.checked })}
+                    />
+                  </td>
+                  <td>{s.row}</td>
+                  <td>
+                    {s.administration}
+                    {s.sector === "azhar" ? " (أزهري)" : ""}
+                  </td>
+                  <td>
+                    {weekdayName(s.weekday)} {s.submitted}
+                    {s.late && <span className="badge badge-warning">متأخر</span>}
+                  </td>
+                  <td>
+                    <select value={s.week} aria-label={"أسبوع إرسال صف " + s.row} onChange={(e) => onChange(s.row, { week: e.target.value })}>
+                      {weeks.sort().map((w) => (
+                        <option key={w} value={w}>
+                          {weekText(w)}
+                          {w === s.proposedWeek ? " (المقترح)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>{s.screened.toLocaleString("ar-EG")}</td>
+                  <td>
+                    <strong>{statusText[s.status]}</strong>
+                    {[...s.reasons, ...s.errors.map((e) => "⚠ " + e), ...s.notes].length > 0 && (
+                      <ul className="compact">
+                        {s.reasons.map((r, i) => (
+                          <li key={"r" + i}>{r}</li>
+                        ))}
+                        {s.errors.map((r, i) => (
+                          <li key={"e" + i} className="error">
+                            {r}
+                          </li>
+                        ))}
+                        {s.notes.map((r, i) => (
+                          <li key={"n" + i}>{r}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  );
+}
 
 export function ImportWizard({
   administrations,
@@ -52,11 +153,16 @@ export function ImportWizard({
   const [options, setOptions] = useState<ImportOptions>({
     sector: "column",
     valueMode: "weekly",
-    weekRule: "previous",
+    weekRule: "window",
     defaultAdministration: ownName,
   });
+  const [overrides, setOverrides] = useState<Record<string, Record<number, Override>>>({});
   const set = (patch: Partial<ImportOptions>) => setOptions((o) => ({ ...o, ...patch }));
   const sheet = file?.sheets[sheetIndex];
+  const sheetKey = (file?.sha ?? "") + "|" + sheetIndex;
+  const sheetOverrides = useMemo(() => overrides[sheetKey] ?? {}, [overrides, sheetKey]);
+  const override = (row: number, o: Override) =>
+    setOverrides((all) => ({ ...all, [sheetKey]: { ...(all[sheetKey] ?? {}), [row]: { ...(all[sheetKey]?.[row] ?? {}), ...o } } }));
   const catalog = useMemo(() => {
     const map = new Map<string, Program>();
     for (const p of programs.filter((p) => p.school_year_id === year && p.enabled)) if (!map.has(p.code) || map.get(p.code)!.version < p.version) map.set(p.code, p);
@@ -65,7 +171,7 @@ export function ImportWizard({
   const result = useMemo(() => {
     if (!sheet) return null;
     try {
-      return buildImport(sheet, options, {
+      return buildImport(sheet, { ...options, overrides: sheetOverrides }, {
         administrations: administrations.map((a) => a.name_ar),
         programs: catalog,
         allowed: ownName ? [ownName] : undefined,
@@ -73,7 +179,7 @@ export function ImportWizard({
     } catch (e) {
       return { error: (e as Error).message };
     }
-  }, [sheet, options, administrations, catalog, ownName]);
+  }, [sheet, options, sheetOverrides, administrations, catalog, ownName]);
   const errors = result && "issues" in result ? result.issues.filter((i) => i.level === "error") : [];
   const warnings = result && "issues" in result ? result.issues.filter((i) => i.level === "warning") : [];
   const ready = result && "batches" in result && result.batches.length > 0 && errors.length === 0;
@@ -157,8 +263,9 @@ export function ImportWizard({
             <label>
               الأسبوع من تاريخ الإرسال
               <select value={options.weekRule} onChange={(e) => set({ weekRule: e.target.value as ImportOptions["weekRule"] })}>
-                <option value="previous">الأسبوع اللي قبل الإرسال (البلاغ بيتبعت بعد ما الأسبوع يخلص)</option>
-                <option value="same">نفس أسبوع الإرسال</option>
+                <option value="window">زي الفورم: من الأربع للتلات اللي بعده = الأسبوع اللي بدأ قبله (موصى به)</option>
+                <option value="previous">دايمًا الأسبوع اللي قبل أسبوع الإرسال</option>
+                <option value="same">دايمًا نفس أسبوع الإرسال</option>
               </select>
             </label>
             {!ownName && (
@@ -214,6 +321,7 @@ export function ImportWizard({
                   </table>
                 </div>
               </details>
+              {result.submissions.length > 0 && <SubmissionTable list={result.submissions} onChange={override} />}
               {errors.length > 0 && (
                 <div className="flash flash-error" role="alert">
                   <strong>لازم تتصلّح قبل الحفظ ({errors.length.toLocaleString("ar-EG")}):</strong>

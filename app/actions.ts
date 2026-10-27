@@ -300,7 +300,7 @@ const stagePayload = z.object({
   source_name: z.string().max(200),
   source_sha256: z.string().regex(/^[a-f0-9]{64}$/),
   value_mode: z.enum(["weekly", "cumulative"]),
-  week_rule: z.enum(["previous", "same"]),
+  week_rule: z.enum(["window", "previous", "same"]),
   sheet: z.string().max(120),
   batches: z.array(z.object({ administration_id: z.uuid(), rows: z.array(stagedRow).min(1).max(5000) })).min(1).max(13),
 });

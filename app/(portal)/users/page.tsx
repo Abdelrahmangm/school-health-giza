@@ -7,7 +7,7 @@ export default async function Users() {
  if (!isOperator(profile.role)) return <h1>غير مصرح ليك بفتح الصفحة دي</h1>;
  const [users,admins]=await Promise.all([all<Profile>("user_profiles"),all<Administration>("administrations")]);
  return <>
-  <h1>المستخدمون وصلاحيات الدخول</h1>
+  <h1>المستخدمون والصلاحيات</h1>
   <p className="muted">من هنا تقدر تعرف مين له حق يشوف إيه في السيستم، وتراجع الإدارة المرتبطة بكل حساب. صلاحيات الإدارات بتتراجع على قاعدة البيانات، مش على شكل الشاشة بس.</p>
   <section className="card">
    <h2>الأدوار المتاحة في النظام</h2>

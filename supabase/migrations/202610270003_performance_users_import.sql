@@ -37,30 +37,24 @@ create function public.my_administration() returns uuid language sql stable secu
 -- ---------------------------------------------------------------------------
 -- 2. Same permissions, cheaper policies
 -- ---------------------------------------------------------------------------
-drop policy read_administrations on public.administrations;
-create policy read_administrations on public.administrations for select to authenticated
+alter policy read_administrations on public.administrations
   using ((select public.sees_all_administrations()) or id=(select public.my_administration()));
-drop policy read_profiles on public.user_profiles;
-create policy read_profiles on public.user_profiles for select to authenticated
+alter policy read_profiles on public.user_profiles
   using (user_id=(select auth.uid()) or (select public.is_operator()));
-drop policy read_years on public.school_years;
-create policy read_years on public.school_years for select to authenticated using ((select public.app_role()) is not null);
-drop policy read_programs on public.program_versions;
-create policy read_programs on public.program_versions for select to authenticated using ((select public.app_role()) is not null);
-drop policy read_submissions on public.weekly_submissions;
-create policy read_submissions on public.weekly_submissions for select to authenticated
+alter policy read_years on public.school_years
+  using ((select public.app_role()) is not null);
+alter policy read_programs on public.program_versions
+  using ((select public.app_role()) is not null);
+alter policy read_submissions on public.weekly_submissions
   using ((select public.sees_all_administrations()) or administration_id=(select public.my_administration()));
-drop policy read_revisions on public.submission_revisions;
-create policy read_revisions on public.submission_revisions for select to authenticated
+alter policy read_revisions on public.submission_revisions
   using (exists(select 1 from public.weekly_submissions s where s.id=submission_id)
          and ((select public.app_role())<>'directorate_viewer' or status not in ('draft','needs_correction')));
-drop policy read_targets on public.target_versions;
-create policy read_targets on public.target_versions for select to authenticated
+alter policy read_targets on public.target_versions
   using ((select public.sees_all_administrations()) or administration_id=(select public.my_administration()));
-drop policy read_audit on public.audit_log;
-create policy read_audit on public.audit_log for select to authenticated using ((select public.is_operator()));
-drop policy read_imports on public.import_batches;
-create policy read_imports on public.import_batches for select to authenticated
+alter policy read_audit on public.audit_log
+  using ((select public.is_operator()));
+alter policy read_imports on public.import_batches
   using ((select public.is_operator()) or administration_id=(select public.my_administration()));
 
 create index if not exists weekly_submissions_year_week on public.weekly_submissions (school_year_id, week_start);

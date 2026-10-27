@@ -25,11 +25,13 @@ type Db = Awaited<ReturnType<typeof supabase>>;
 export const session = cache(async () => {
   if (!configured()) redirect("/setup");
   const db = await supabase();
-  const {
-    data: { user },
-    error,
-  } = await db.auth.getUser();
-  if (error || !user) redirect("/login");
+  // getClaims verifies the signed session token locally (asymmetric keys) instead of a
+  // round-trip to the Auth server on every page; it falls back to the server otherwise.
+  // The profile row below is still read under RLS, so a disabled account is refused at once.
+  const { data, error } = await db.auth.getClaims();
+  const sub = data?.claims?.sub;
+  if (error || !sub) redirect("/login");
+  const user = { id: sub, email: typeof data.claims.email === "string" ? data.claims.email : undefined };
   const { data: profile, error: pe } = await db
     .from("user_profiles")
     .select("user_id,role,administration_id,full_name,email,status")

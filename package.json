@@ -11,12 +11,15 @@
     "test:db": "bash scripts/test-db.sh",
     "test:e2e": "playwright test",
     "test:integration": "bash scripts/test-integration.sh",
+    "test:integration:local": "bash scripts/test-integration-local.sh",
+    "check:bundle": "node scripts/check-client-bundle.mjs",
     "format:check": "prettier --check \"app/**/*.{ts,tsx,css}\" \"components/**/*.{ts,tsx}\" \"lib/*.ts\" \"tests/**/*.ts\" \"*.{ts,json}\" \"scripts/*.mjs\""
   },
   "dependencies": {
     "@js-temporal/polyfill": "^0.5.1",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.76.0",
+    "fflate": "^0.8.3",
     "next": "^16.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

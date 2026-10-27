@@ -22,9 +22,12 @@ export async function proxy(request: NextRequest) {
       },
     },
   });
-  await db.auth.getUser();
+  // Refreshes the session cookie. getClaims verifies the JWT locally when the project uses
+  // asymmetric signing keys (no network round-trip) and falls back to the Auth server otherwise.
+  // Authorization is still decided per request by session() and PostgreSQL RLS.
+  await db.auth.getClaims();
   return response;
 }
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|webp|ico)$).*)"],
 };

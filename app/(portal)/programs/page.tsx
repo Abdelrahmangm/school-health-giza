@@ -1,9 +1,14 @@
-import { dataset, session } from "@/lib/data";
+import { reference, session } from "@/lib/data";
 import { latestPrograms, labels, isOperator } from "@/lib/domain";
-import { saveProgram, createYear } from "@/app/actions";
-export default async function Programs() {
-  const d = await dataset();
-  const { profile } = await session();
+import { SHEET_COMPREHENSIVE_INDICATORS } from "@/lib/catalog";
+import { saveProgram, createYear, addSheetIndicators } from "@/app/actions";
+import { Flash } from "@/components/flash";
+export default async function Programs({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const [d, { profile }, params] = await Promise.all([reference(), session(), searchParams]);
+  const missingSheetIndicators = latestPrograms(d.programs)
+    .filter((p) => p.code === "comprehensive")
+    .map((p) => ({ p, missing: SHEET_COMPREHENSIVE_INDICATORS.filter((i) => !p.indicators.includes(i)) }))
+    .filter((x) => x.missing.length);
   return (
     <>
       <h1>البرامج والأعوام الدراسية</h1>
@@ -14,6 +19,24 @@ export default async function Programs() {
         رياض أطفال ثانية للإبصار فقط في 2026–27. مؤشرات الفحص الشامل الحالية
         قائمة أولية تحتاج اعتماد المديرية؛ لا تعني مطابقة نموذج الوزارة.
       </div>
+      <Flash params={params} />
+      {isOperator(profile.role) &&
+        missingSheetIndicators.map(({ p, missing }) => (
+          <section className="card" key={p.id}>
+            <h2>مؤشرات موجودة في شيتات البلاغ الأصلية ومش متسجلة في {p.name_ar}</h2>
+            <p className="muted">
+              {missing.map((i) => labels[i] || i).join("، ")}
+            </p>
+            <p className="field-help">
+              لازم تتضاف علشان استيراد الشيتات القديمة يشتغل. الإضافة بتعمل إصدار جديد للبرنامج من غير ما تغيّر الصفوف الخمسة ولا البيانات القديمة،
+              وبتتسجل في سجل المراجعة. راجع القائمة مع المديرية قبل ما تضغط.
+            </p>
+            <form action={addSheetIndicators}>
+              <input type="hidden" name="program_version_id" value={p.id} />
+              <button className="secondary">إضافة المؤشرات دي كإصدار جديد</button>
+            </form>
+          </section>
+        ))}
       {isOperator(profile.role) && (
         <>
           <section className="card">

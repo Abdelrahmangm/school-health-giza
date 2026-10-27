@@ -1,36 +1,36 @@
 import Link from "next/link";
-import {dataset,filters} from "@/lib/data";
-import {aggregate,labels,latestPrograms} from "@/lib/domain";
+import {facts,filters,reference,submissionPage,targetsFor} from "@/lib/data";
+import {aggregateFacts,labels,latestPrograms} from "@/lib/domain";
 import {FilterForm} from "@/components/filters";
 import {UiIcon} from "@/components/portal-nav";
+import {Flash} from "@/components/flash";
 
 const fmt=(value:number)=>value.toLocaleString("ar-EG",{maximumFractionDigits:1});
 const percent=(value:number|null)=>value===null?"—":fmt(value)+"٪";
 
 export default async function Dashboard({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
- const d=await dataset();
- const params=await searchParams;
+ const [ref,params]=await Promise.all([reference(),searchParams]);
+ const d={...ref};
  const f=filters(params,d.years);
- const m=aggregate(d.submissions,d.revisions,d.lines,d.targets,f);
+ // Three small parallel queries instead of downloading every table: totals are summed in PostgreSQL.
+ const [data,targets,latest]=await Promise.all([facts(f),targetsFor(f.year),submissionPage({year:f.year,administration:f.administration,page:1,size:5})]);
+ const m=aggregateFacts(data,targets,f);
  const selectedYear=d.years.find(y=>y.id===f.year)?.label||"العام الدراسي";
  const comparisons=d.administrations
   .filter(a=>!f.administration||a.id===f.administration)
-  .map(a=>({id:a.id,name:a.name_ar,values:aggregate(d.submissions,d.revisions,d.lines,d.targets,{...f,administration:a.id})}));
+  .map(a=>({id:a.id,name:a.name_ar,values:aggregateFacts(data,targets,{...f,administration:a.id})}));
  const programs=latestPrograms(d.programs)
   .filter(p=>p.school_year_id===f.year&&p.enabled)
   .slice(0,4)
-  .map(p=>({id:p.id,name:p.name_ar,values:aggregate(d.submissions,d.revisions,d.lines,d.targets,{...f,program:p.code,grade:""})}));
- const recent=d.submissions
-  .filter(s=>s.school_year_id===f.year&&(!f.administration||s.administration_id===f.administration))
-  .flatMap(s=>{
-   const revision=d.revisions.filter(r=>r.submission_id===s.id).sort((a,b)=>b.revision_number-a.revision_number)[0];
+  .map(p=>({id:p.id,name:p.name_ar,values:aggregateFacts(data,targets,{...f,program:p.code,grade:""})}));
+ const recent=latest.rows.flatMap(s=>{
+   const revision=[...s.submission_revisions].sort((a,b)=>b.revision_number-a.revision_number)[0];
    return revision?[{submission:s,revision}]:[];
-  })
-  .sort((a,b)=>b.submission.week_start.localeCompare(a.submission.week_start))
-  .slice(0,5);
+  });
  const adminName=(id:string)=>d.administrations.find(a=>a.id===id)?.name_ar||"إدارة غير معروفة";
  const cap=(value:number|null)=>Math.max(0,Math.min(100,value||0));
  return <div className="dashboard-new">
+  <Flash params={params}/>
   <section className="dashboard-hero">
    <div className="dashboard-hero-copy">
     <span className="eyebrow">مديرية الشؤون الصحية بالجيزة · لوحة متابعة الفحص</span>

@@ -1,30 +1,31 @@
-import { dataset, session } from "@/lib/data";
-import { authorize, weekFor } from "@/lib/domain";
+import { notFound } from "next/navigation";
+import { linesOf, reference, session } from "@/lib/data";
+import { authorize, latestPrograms, weekFor } from "@/lib/domain";
 import { ReportForm } from "@/components/report-form";
-export default async function NewReport({
-  searchParams,
-}: {
-  searchParams: Promise<{ submission?: string }>;
-}) {
-  const { profile } = await session();
+export default async function NewReport({ searchParams }: { searchParams: Promise<{ submission?: string }> }) {
+  const [{ profile, db }, ref, p] = await Promise.all([session(), reference(), searchParams]);
   authorize(profile, true);
-  const d = await dataset();
-  const p = await searchParams;
-  const s = d.submissions.find((s) => s.id === p.submission);
+  let s: { id: string; administration_id: string; school_year_id: string; week_start: string; official_revision_id: string | null } | null = null;
+  if (p.submission) {
+    const { data } = await db
+      .from("weekly_submissions")
+      .select("id,administration_id,school_year_id,week_start,official_revision_id")
+      .eq("id", p.submission)
+      .maybeSingle();
+    if (!data) notFound();
+    s = data;
+  }
+  const initial = await linesOf(s?.official_revision_id ?? null);
   return (
     <>
       <h1>{s ? "اقتراح نسخة تعديل" : "إنشاء بلاغ أسبوعي"}</h1>
-      <p className="muted">تظل النسخة المعتمدة رسمية حتى اعتماد التعديل.</p>
+      <p className="muted">النسخة المعتمدة بتفضل هي الرسمية لحد ما التعديل يتعتمد.</p>
       <ReportForm
-        {...d}
-        initial={
-          s
-            ? d.lines.filter((l) => l.revision_id === s.official_revision_id)
-            : []
-        }
-        administration={
-          s?.administration_id || profile.administration_id || undefined
-        }
+        administrations={ref.administrations}
+        years={ref.years}
+        programs={latestPrograms(ref.programs).filter((x) => x.enabled)}
+        initial={initial}
+        administration={s?.administration_id || profile.administration_id || undefined}
         year={s?.school_year_id}
         week={s?.week_start || weekFor(new Date().toISOString())}
       />

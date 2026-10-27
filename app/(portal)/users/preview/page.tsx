@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-import { all, dataset, filters, session } from "@/lib/data";
-import { aggregate, labels, isSupervisor, type Profile, type Administration } from "@/lib/domain";
+import { all, facts, filters, reference, session, targetsFor } from "@/lib/data";
+import { aggregateFacts, labels, isSupervisor, type Profile, type Administration } from "@/lib/domain";
 
 /** Safe read-only preview: never changes the session, JWT, permissions, or RLS. */
 export default async function RolePreview({searchParams}:{searchParams:Promise<{user?:string}>}){
@@ -11,17 +11,18 @@ export default async function RolePreview({searchParams}:{searchParams:Promise<{
  const params=await searchParams;
  const parsed=z.uuid().safeParse(params.user);
  if (!parsed.success) notFound();
- const [profiles, administrations, d]=await Promise.all([
+ const [profiles, d]=await Promise.all([
   all<Profile>("user_profiles"),
-  all<Administration>("administrations"),
-  dataset(),
+  reference(),
  ]);
+ const administrations:Administration[]=d.administrations;
  const target=profiles.find(p=>p.user_id===parsed.data);
  if (!target) notFound();
  const admin=administrations.find(a=>a.id===target.administration_id);
  const f=filters({},d.years);
  const scoped={...f,administration:target.role==="administration_data_entry"?(target.administration_id||""):f.administration};
- const m=aggregate(d.submissions,d.revisions,d.lines,d.targets,scoped);
+ const [data,targets]=await Promise.all([facts(scoped),targetsFor(scoped.year)]);
+ const m=aggregateFacts(data,targets,scoped);
  const fmt=(n:number)=>n.toLocaleString("ar-EG");
  return <div>
   <p><Link href="/users">الرجوع إلى المستخدمين والصلاحيات</Link></p>

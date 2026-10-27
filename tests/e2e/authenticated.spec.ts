@@ -177,23 +177,26 @@ test("DEMO end-to-end: scoped entry → review → official amendment → annual
       ).toBeVisible();
     }
     await entry.goto("/imports");
-    // Waiting for hydration prevents input events from being lost during slow CI runs.
-    await expect(entry.locator("form[data-hydrated]")).toHaveAttribute("data-hydrated", "true");
     const week = weekFor(new Date().toISOString());
-    await entry
-      .getByRole("textbox", { name: /CSV مجمّع/ })
-      .fill(
-        `week,program,sector,grade,indicator,count\n${week},comprehensive,general,primary1,screened,10\n${week},comprehensive,general,primary1,anemia,2`,
-      );
-    await entry
-      .getByRole("button", { name: "معاينة والتحقق", exact: true })
-      .click();
-    await entry
-      .getByRole("button", { name: "حفظ في منطقة التجهيز فقط", exact: true })
-      .click();
-    await expect(entry.getByRole("status")).toContainText(
-      "حُفظت البيانات المجمعة",
-    );
+    // Upload a synthetic DEMO CSV, review, stage, compare, then promote to a DRAFT only.
+    await entry.locator('input[type="file"]').setInputFiles({
+      name: "demo-import.csv",
+      mimeType: "text/csv",
+      buffer: Buffer.from(
+        `week,program,sector,grade,indicator,count\n${week},comprehensive,azhar,primary1,screened,7\n${week},comprehensive,azhar,primary1,anemia,1`,
+      ),
+    });
+    await expect(entry.getByRole("cell", { name: "أوسيم", exact: true })).toBeVisible();
+    await entry.getByRole("button", { name: "حفظ في منطقة التجهيز", exact: true }).click();
+    await expect(entry.getByRole("status")).toContainText("منطقة التجهيز");
+    await entry.getByRole("link", { name: "مراجعة ومقارنة ←" }).first().click();
+    await expect(entry.getByText("جديد", { exact: true }).first()).toBeVisible();
+    await entry.getByRole("button", { name: "تحويل لمسودات بلاغات", exact: true }).click();
+    await expect(entry.getByRole("status")).toContainText("مسودات");
+    // Official numbers are untouched until the draft is submitted and approved.
+    await admin.goto("/");
+    await metric(admin, 0, "٢٠");
+    console.log("DEMO: import staged, reconciled and promoted to draft");
   } catch (error) {
     await entry.screenshot({
       path: "/tmp/school-health-failed-entry.png",

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { session, dataset, filters } from "@/lib/data";
+import { session, payload, reference, filters } from "@/lib/data";
 import type { Filters } from "@/lib/domain";
 import { aggregate, csv, labels } from "@/lib/domain";
 export async function GET(req: NextRequest) {
@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
       { error: "MINISTRY_MAPPING_NOT_VERIFIED" },
       { status: 409 },
     );
-  let d: Awaited<ReturnType<typeof dataset>>;
+  let d: Awaited<ReturnType<typeof payload>>;
   let f: Filters;
   const snapshot = req.nextUrl.searchParams.get("snapshot");
   if (snapshot) {
@@ -23,8 +23,10 @@ export async function GET(req: NextRequest) {
     d = data.payload;
     f = data.filters;
   } else {
-    d = await dataset();
-    f = filters(Object.fromEntries(req.nextUrl.searchParams), d.years);
+    const ref = await reference();
+    f = filters(Object.fromEntries(req.nextUrl.searchParams), ref.years);
+    // Filtered in PostgreSQL under the caller's RLS instead of downloading every table.
+    d = await payload(f);
   }
   const m = aggregate(d.submissions, d.revisions, d.lines, d.targets, f);
   const rows: unknown[][] = [

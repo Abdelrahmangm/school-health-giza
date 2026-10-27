@@ -32,15 +32,22 @@ for attempt in {1..45}; do
 done
 if [[ "$database_ready" -ne 1 ]]; then echo "PostgreSQL did not become ready" >&2; false; fi
 last_step="create disposable roles and auth bootstrap"
-docker exec -i "$tag-db" psql -U postgres -v ON_ERROR_STOP=1 <<'SQL'
+cat > "$state/bootstrap.sql" <<'SQL'
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;
 create schema auth;
-create function auth.uid() returns uuid language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claim.sub',true),''),current_setting('request.jwt.claims',true)::jsonb->>'sub')::uuid$$;
+create function auth.uid() returns uuid language sql stable as $select coalesce(nullif(current_setting('request.jwt.claim.sub',true),''),current_setting('request.jwt.claims',true)::jsonb->>'sub')::uuid$;
 grant usage on schema public,auth to anon,authenticated,service_role;
 grant execute on function auth.uid() to anon,authenticated,service_role;
 SQL
+# PostgreSQL can briefly restart after pg_isready succeeds during initialization.
+bootstrap_ok=0
+for attempt in {1..20}; do
+  if docker exec -i "$tag-db" psql -U postgres -v ON_ERROR_STOP=1 < "$state/bootstrap.sql"; then bootstrap_ok=1; break; fi
+  sleep 1
+done
+if [[ "$bootstrap_ok" -ne 1 ]]; then echo "Could not bootstrap disposable PostgreSQL test database" >&2; false; fi
 jwt_secret=$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')
 # Keys are synthetic and only valid for these disposable local containers.
 export NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY

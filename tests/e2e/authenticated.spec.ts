@@ -196,7 +196,13 @@ test("DEMO end-to-end: scoped entry → review → official amendment → annual
     // Official numbers are untouched until the draft is submitted and approved.
     await admin.goto("/");
     await metric(admin, 0, "٢٠");
-    console.log("DEMO: import staged, reconciled and promoted to draft");
+    // Directorate: send and approve the drafts of the selected batch in one step.
+    await admin.goto("/imports");
+    await admin.locator('input[name="batch_id"]').first().check();
+    await admin.getByRole("button", { name: "إرسال واعتماد بلاغات المحدد", exact: true }).click();
+    await expect(admin.getByRole("status")).toContainText("اتعتمدت");
+    await expect(admin.getByRole("status")).toContainText("اتنفذ ١");
+    console.log("DEMO: import staged, reconciled, promoted to draft, then bulk submitted and approved");
   } catch (error) {
     await entry.screenshot({
       path: "/tmp/school-health-failed-entry.png",

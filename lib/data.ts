@@ -29,8 +29,8 @@ export async function session() {
   if (pe || !profile) redirect("/login?error=profile");
   return { db, user, profile: profile as Profile };
 }
-export async function all<T>(table: string): Promise<T[]> {
-  const { db } = await session();
+export async function all<T>(table: string, existingDb?: Awaited<ReturnType<typeof supabase>>): Promise<T[]> {
+  const db = existingDb ?? (await session()).db;
   const result: T[] = [];
   for (let offset = 0; offset < 100000; offset += 1000) {
     const { data, error } = await db
@@ -53,6 +53,8 @@ export async function all<T>(table: string): Promise<T[]> {
   );
 }
 export async function dataset() {
+  // A single verified session shared by all reads avoids seven repeated Auth round-trips.
+  const {db}=await session();
   const [
     administrations,
     years,
@@ -62,13 +64,13 @@ export async function dataset() {
     lines,
     targets,
   ] = await Promise.all([
-    all<Administration>("administrations"),
-    all<SchoolYear>("school_years"),
-    all<Program>("program_versions"),
-    all<Submission>("weekly_submissions"),
-    all<Revision>("submission_revisions"),
-    all<Line>("report_lines"),
-    all<Target>("target_versions"),
+    all<Administration>("administrations",db),
+    all<SchoolYear>("school_years",db),
+    all<Program>("program_versions",db),
+    all<Submission>("weekly_submissions",db),
+    all<Revision>("submission_revisions",db),
+    all<Line>("report_lines",db),
+    all<Target>("target_versions",db),
   ]);
   return {
     administrations,

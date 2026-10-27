@@ -1,5 +1,5 @@
 import { dataset, session } from "@/lib/data";
-import { labels, latestPrograms } from "@/lib/domain";
+import { labels, latestPrograms, isOperator } from "@/lib/domain";
 import { proposeTarget, reviewTarget } from "@/app/actions";
 export default async function Targets() {
   const d = await dataset();
@@ -125,7 +125,7 @@ export default async function Targets() {
                     : "—"}
                 </td>
                 <td>
-                  {profile.role === "directorate_admin" &&
+                  {isOperator(profile.role) &&
                   t.status === "proposed" ? (
                     <form action={reviewTarget}>
                       <input type="hidden" name="target_id" value={t.id} />

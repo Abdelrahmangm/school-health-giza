@@ -1,4 +1,5 @@
 import { session, all } from "@/lib/data";
+import { isOperator } from "@/lib/domain";
 type Audit = {
   id: number;
   actor_id: string;
@@ -10,7 +11,7 @@ type Audit = {
 };
 export default async function Audit() {
   const { profile } = await session();
-  if (profile.role !== "directorate_admin") return <h1>غير مصرح</h1>;
+  if (!isOperator(profile.role)) return <h1>غير مصرح</h1>;
   const rows = await all<Audit>("audit_log");
   return (
     <>

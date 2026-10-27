@@ -39,5 +39,7 @@ create function auth.uid() returns uuid language sql stable as $$select nullif(c
 grant usage on schema public,auth to authenticated,anon;
 grant execute on function auth.uid() to authenticated,anon;
 SQL
-"${db_psql[@]}" < supabase/migrations/202610270001_platform.sql
+for migration in supabase/migrations/*.sql; do
+  "${db_psql[@]}" < "$migration"
+done
 "${db_psql[@]}" < supabase/tests/acceptance.sql

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { dataset, session } from "@/lib/data";
-import { labels, deadline, canEdit } from "@/lib/domain";
+import { labels, deadline, canEdit, isOperator } from "@/lib/domain";
 import { ReportForm } from "@/components/report-form";
 import { transitionReport, reopenReport } from "@/app/actions";
 export default async function Report({
@@ -106,7 +106,7 @@ export default async function Report({
               </button>
             </form>
           )}
-          {profile.role === "directorate_admin" &&
+          {isOperator(profile.role) &&
             r.status === "provisional" && (
               <form action={transitionReport}>
                 <input type="hidden" name="revision_id" value={r.id} />
@@ -140,7 +140,7 @@ export default async function Report({
             </p>
           )}
         </div>
-        {profile.role === "directorate_admin" && (
+        {isOperator(profile.role) && (
           <form action={reopenReport} className="grid subsection">
             <input type="hidden" name="submission_id" value={s.id} />
             <label>

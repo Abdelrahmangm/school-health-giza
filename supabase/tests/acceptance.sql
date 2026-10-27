@@ -4,13 +4,15 @@ begin;
 create function public.test_assert(ok boolean,description text) returns void language plpgsql as $$begin if ok is distinct from true then raise exception 'FAIL: %',description; end if; raise notice 'PASS: %',description; end$$;
 create function public.test_denied(command text,expected text,description text) returns void language plpgsql as $$declare failed boolean:=false; begin begin execute command; exception when others then if position(expected in sqlerrm)=0 then raise exception 'UNEXPECTED ERROR for %: %',description,sqlerrm; end if; failed:=true; end; perform public.test_assert(failed,description); end$$;
 grant execute on function public.test_assert(boolean,text),public.test_denied(text,text,text) to authenticated,anon;
-insert into auth.users values ('00000000-0000-0000-0000-000000000001'),('00000000-0000-0000-0000-000000000002'),('00000000-0000-0000-0000-000000000003'),('00000000-0000-0000-0000-000000000004'),('00000000-0000-0000-0000-000000000005');
+insert into auth.users values ('00000000-0000-0000-0000-000000000001'),('00000000-0000-0000-0000-000000000002'),('00000000-0000-0000-0000-000000000003'),('00000000-0000-0000-0000-000000000004'),('00000000-0000-0000-0000-000000000005'),('00000000-0000-0000-0000-000000000006'),('00000000-0000-0000-0000-000000000007');
 insert into public.administrations(id,name_ar) values ('10000000-0000-0000-0000-000000000001','DEMO administration A'),('10000000-0000-0000-0000-000000000002','DEMO administration B');
 insert into public.user_profiles values
 ('00000000-0000-0000-0000-000000000001','directorate_admin',null),
 ('00000000-0000-0000-0000-000000000002','directorate_viewer',null),
 ('00000000-0000-0000-0000-000000000003','administration_data_entry','10000000-0000-0000-0000-000000000001'),
-('00000000-0000-0000-0000-000000000004','administration_data_entry','10000000-0000-0000-0000-000000000002');
+('00000000-0000-0000-0000-000000000004','administration_data_entry','10000000-0000-0000-0000-000000000002'),
+('00000000-0000-0000-0000-000000000006','program_manager',null),
+('00000000-0000-0000-0000-000000000007','directorate_supervisor',null);
 insert into public.school_years(id,label,starts_on,ends_on) values('20000000-0000-0000-0000-000000000001','DEMO test year',current_date-30,current_date+370);
 insert into public.program_versions(id,school_year_id,code,name_ar,version,enabled,grades,indicators) values
 ('30000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','comprehensive','DEMO comprehensive',1,true,'["kg1","primary1","primary4","preparatory1","secondary1"]','["anemia","dental"]'),
@@ -92,4 +94,14 @@ select public.test_denied($q$select * from public.report_lines$q$,'permission de
 select public.test_denied($q$select public.save_report(null,null,null,null)$q$,'permission denied','anonymous mutation denied');
 reset role;
 select public.test_assert(public.report_deadline('2026-10-25')='2026-11-01T14:00:00Z'::timestamptz,'deadline follows Cairo DST');
+-- Verify four distinct permissions using real Postgres roles and RLS.
+set local role authenticated;
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000006';
+select public.test_assert(public.can_access('10000000-0000-0000-0000-000000000001'),'program manager sees all administrations');
+select public.test_assert(public.can_write('10000000-0000-0000-0000-000000000002'),'program manager can operate across administrations');
+select public.test_denied($q$select public.assign_role('00000000-0000-0000-0000-000000000003','directorate_viewer')$q$,'FORBIDDEN','program manager cannot grant roles');
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000007';
+select public.test_assert(public.can_access('10000000-0000-0000-0000-000000000002'),'supervisor can see directorate data');
+select public.assign_role('00000000-0000-0000-0000-000000000006','program_manager');
+select public.test_denied($q$select public.assign_role(auth.uid(),'directorate_viewer')$q$,'CANNOT_CHANGE_OWN_ROLE','supervisor cannot change own role');
 rollback;

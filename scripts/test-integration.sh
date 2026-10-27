@@ -86,7 +86,10 @@ for attempt in {1..60}; do
 done
 if [[ "$auth_ready" -ne 1 ]]; then echo "GoTrue did not create auth.users" >&2; false; fi
 last_step="apply application schema and RLS migrations"
-docker exec -i "$tag-db" psql -U postgres -v ON_ERROR_STOP=1 < supabase/migrations/202610270001_platform.sql
+for migration in supabase/migrations/*.sql; do
+  echo "Applying isolated migration: $(basename "$migration")"
+  docker exec -i "$tag-db" psql -U postgres -v ON_ERROR_STOP=1 < "$migration"
+done
 cat > "$state/rest.env" <<EOF_REST
 PGRST_DB_URI=postgres://postgres:DEMO-local-test-only@db:5432/postgres
 PGRST_DB_SCHEMAS=public

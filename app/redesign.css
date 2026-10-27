@@ -96,3 +96,13 @@ tr.row-disabled td{opacity:.6}
 /* Long tables render off-screen rows lazily */
 .table-wrap tbody tr{content-visibility:auto;contain-intrinsic-size:auto 44px}
 .report-entry-table tbody tr{content-visibility:visible}
+/* Import: per-submission review */
+.submissions-review{margin-block:12px}
+.submissions-review summary{font-weight:700;cursor:pointer}
+.submission-table td{vertical-align:top}
+.submission-table select{min-width:150px}
+.submission-table tr.row-muted select{opacity:.7}
+ul.compact{margin:4px 0 0;padding-inline-start:18px;font-size:.88em;line-height:1.5}
+ul.compact li.error{color:#a33a2b}
+label.inline{display:inline-flex;gap:6px;align-items:center;font-weight:400}
+.badge-warning{background:#fff1d6;color:#7a4b00;margin-inline-start:6px}

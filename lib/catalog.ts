@@ -50,9 +50,9 @@ export const INDICATORS: { code: string; label: string; aliases: string[] }[] = 
   { code: "heart", label: "أمراض القلب", aliases: ["امراض القلب", "قلب"] },
   { code: "epilepsy", label: "الصرع", aliases: ["الصرع", "صرع"] },
   { code: "asthma", label: "حساسية الصدر", aliases: ["حساسيه الصدر", "حساسيه صدر"] },
-  { code: "rheumatic_fever", label: "الحمى الروماتيزمية", aliases: ["حمي روماتيزميه", "حمه روماتيزميه", "الحمي الروماتيزميه"] },
+  { code: "rheumatic_fever", label: "الحمى الروماتيزمية", aliases: ["حمي روماتيزميه", "حمه روماتيزميه", "الحمي الروماتيزميه", "حمي روماتيوميه"] },
   { code: "renal", label: "الاعتلال الكلوي", aliases: ["اعتلال كلوي"] },
-  { code: "blood_disorders", label: "أمراض الدم", aliases: ["امراض الدم"] },
+  { code: "blood_disorders", label: "أمراض الدم", aliases: ["امراض الدم", "امراض دم"] },
   { code: "tumors", label: "الأورام", aliases: ["اورام سرطانيه", "اورام"] },
   { code: "glasses", label: "النظارات", aliases: ["نظارات", "نضارات"] },
   { code: "psychological", label: "نفسية", aliases: ["نفسيه"] },
@@ -120,7 +120,8 @@ export type HeaderMeaning =
 
 /** Understands one column header of the original wide sheets, e.g. "السمنه اولي حضانه". */
 export function interpretHeader(raw: string): HeaderMeaning {
-  const h = normalizeArabic(raw);
+  // Azhar sheets sometimes add the sector at the end ("مستهدف اولي حضانه أزهر").
+  const h = normalizeArabic(raw).replace(/\s+(ازهر|الازهر|ازهري|عام)$/, "");
   if (!h) return { kind: "unknown", reason: "عمود من غير عنوان" };
   if (["timestamp", "الطابع الزمني", "تاريخ الارسال", "وقت الارسال"].includes(h)) return { kind: "timestamp" };
   if (["الاداره", "اداره", "الاداره الصحيه", "الادارة"].includes(h)) return { kind: "administration" };
@@ -130,6 +131,7 @@ export function interpretHeader(raw: string): HeaderMeaning {
   if (!grade) return { kind: "unknown", reason: "مش لاقي الصف الدراسي في عنوان العمود" };
   const remainder = h.replace(grade.alias, " ").replace(/\s+/g, " ").trim();
   const text = remainder.replace(/^حالات\s+/, "").replace(/\s*المكتشفه/, "").replace(/\s+/g, " ").trim();
+  if (/^اجمالي/.test(text)) return { kind: "unknown", reason: "عمود إجمالي — السيستم بيحسب الإجماليات لوحده" };
   if (text === "مستهدف") return { kind: "target", grade: grade.code };
   if (/^(عدد )?(ما ?تم ?فحصه|المفحوصين|المفحوصون)$/.test(text)) return { kind: "screened", grade: grade.code };
   for (const candidate of [remainder, text, text.replace(/\s+اخري$/, "")]) {

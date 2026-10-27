@@ -174,3 +174,114 @@ describe("file readers", () => {
     expect(sheet.rows[1]).toEqual(["x;1", 'he said "hi"']);
   });
 });
+
+import headers from "./fixtures/sheet-headers.json";
+import { readCell, reportingWeek } from "../lib/import";
+import { Temporal } from "@js-temporal/polyfill";
+import { INDICATORS } from "../lib/catalog";
+
+const ministryCatalog: ProgramCatalog[] = [
+  {
+    code: "comprehensive",
+    grades: ["kg1", "primary1", "primary4", "preparatory1", "secondary1"],
+    indicators: INDICATORS.filter((i) => i.aliases.length && !["strabismus", "ptosis"].includes(i.code)).map((i) => i.code),
+  },
+  { code: "vision", grades: ["kg2"], indicators: ["visual_impairment", "strabismus", "ptosis"] },
+];
+
+describe("every column header of the four directorate tabs (headers only, no data)", () => {
+  it.each(Object.entries(headers as Record<string, string[]>))("%s", (name, row) => {
+    const plan = planSheet({ name, rows: [row, row.map(() => "")] });
+    const unknown = plan.columns.filter((c) => c.meaning.kind === "unknown" && c.header.trim()).map((c) => c.header.trim());
+    expect(unknown.filter((h) => !h.startsWith("اجمالي"))).toEqual([]);
+    expect(plan.columns.find((c) => c.header.startsWith("مستهدف اولي حضانه أزهر"))?.meaning ?? { kind: "target", grade: "kg1" }).toEqual({ kind: "target", grade: "kg1" });
+    if (name === "أزهر أولى ورابعة") expect(plan.columns.find((c) => c.header === "دمج رابعه")?.meaning).toEqual({ kind: "indicator", indicator: "inclusion", grade: "primary4" });
+  });
+});
+
+describe("cells written by people", () => {
+  it.each([
+    ["25 لوز", 25, true],
+    ["1 قلب مفتوح", 1, true],
+    ["4التهاب لثه", 4, true],
+    ["،121", 121, false],
+    ["0 0", 0, false],
+    ["01", 1, false],
+    ["ج", null, true],
+  ])("%s", (raw, value, noted) => {
+    const c = readCell(raw);
+    expect(c.error).toBeUndefined();
+    expect(c.value).toBe(value);
+    expect(!!c.note).toBe(noted);
+  });
+  it.each(["12 و عملقه 1", "-3", "2.5", "#VALUE!"])("rejects %s", (raw) => expect(readCell(raw).error).toBeTruthy());
+});
+
+describe("reporting week (Sunday–Saturday, deadline Sunday 4 PM)", () => {
+  const w = (d: string) => reportingWeek(Temporal.PlainDate.from(d), "window").toString();
+  it("Saturday, Sunday and a late Monday/Tuesday go to the week that just ended; Wednesday on is the current week", () => {
+    expect(w("2026-10-10")).toBe("2026-10-04"); // Saturday
+    expect(w("2026-10-11")).toBe("2026-10-04"); // Sunday
+    expect(w("2026-10-13")).toBe("2026-10-04"); // Tuesday (late)
+    expect(w("2026-10-14")).toBe("2026-10-11"); // Wednesday
+    expect(w("2026-10-16")).toBe("2026-10-11"); // Friday
+  });
+});
+
+const h2 = ["Timestamp", "الاداره", "مستهدف اولي اعدادي", "ما تم فحصه اولي اعدادي", "السمنه اولي اعدادي", "النحافه اولي اعدادي"];
+const opts = { sector: "general" as const, valueMode: "weekly" as const, weekRule: "window" as const };
+const run = (rows: string[][], overrides?: Record<number, { week?: string; include?: boolean }>) =>
+  buildImport({ name: "أولات عام", rows: [h2, ...rows] }, { ...opts, overrides }, { administrations: names, programs: ministryCatalog });
+
+describe("submission review", () => {
+  it("treats a resubmission with the same screened counts as a correction of the same week", () => {
+    const r = run([
+      ["9/29/2026 14:42:29", "الحوامديه", "100", "50", "12 و عملقه 1", "3"], // Tuesday → week 20/9, has a bad cell
+      ["10/2/2026 22:54:18", "الحوامديه", "100", "50", "7", "3"], // Friday → week 27/9
+      ["10/6/2026 19:44:27", "الحوامديه", "100", "50", "8", "3"], // Tuesday → same report again
+    ]);
+    expect(r.submissions.map((s) => [s.row, s.week, s.status])).toEqual([
+      [2, "2026-09-20", "superseded"],
+      [3, "2026-09-20", "superseded"],
+      [4, "2026-09-20", "kept"],
+    ]);
+    // The bad cell is in a superseded submission, so it does not block saving.
+    expect(r.issues.filter((i) => i.level === "error")).toEqual([]);
+    expect(r.batches[0].rows.find((x) => x.indicator === "obesity")?.count).toBe(8);
+  });
+  it("sets aside an identical copy and an all-zero submission, and ignores targets copied from another administration", () => {
+    const r = run([
+      ["10/10/2026 16:44:59", "شرق القناطر", "5568", "548", "4", "5"],
+      ["10/16/2026 17:03:05", "شرق القناطر", "5568", "372", "10", "4"],
+      ["10/18/2026 09:30:51", "شرق القناطر", "5568", "548", "4", "5"], // copy of the 10/10 report
+      ["10/17/2026 12:00:00", "الصف", "10434", "367", "12", "16"],
+      ["10/24/2026 12:00:00", "الصف", "10434", "200", "1", "1"],
+      ["10/24/2026 22:20:33", "البدرشين", "10434", "0", "0", "0"], // zeros + الصف's target
+      ["10/18/2026 13:49:27", "البدرشين", "11644", "1313", "83", "37"],
+    ]);
+    const byRow = new Map(r.submissions.map((s) => [s.row, s]));
+    expect(byRow.get(4)!.week).toBe("2026-10-04");
+    expect(byRow.get(3)!.status).toBe("kept"); // 10/16 stays the week of 11/10
+    expect(byRow.get(7)!.status).toBe("excluded");
+    const targets = r.batches.find((b) => b.administration === "البدرشين")!.rows.filter((x) => x.indicator === "target");
+    expect(targets.map((x) => x.count)).toEqual([11644]);
+  });
+  it("lets the reviewer move a submission to another week or leave it out", () => {
+    const rows = [
+      ["10/3/2026 21:05:10", "غرب القناطر", "6359", "748", "103", "19"],
+      ["10/4/2026 11:06:06", "غرب القناطر", "6359", "494", "65", "15"],
+    ];
+    expect(run(rows).submissions.map((s) => s.status)).toEqual(["superseded", "kept"]);
+    const moved = run(rows, { 3: { week: "2026-10-04" } });
+    expect(moved.submissions.map((s) => [s.week, s.status])).toEqual([["2026-09-27", "kept"], ["2026-10-04", "kept"]]);
+    expect(moved.submissions[1].overridden).toBe(true);
+    const out = run(rows, { 3: { include: false } });
+    expect(out.submissions.map((s) => s.status)).toEqual(["kept", "excluded"]);
+  });
+  it("marks submissions after Sunday 4 PM as late and ignores zero targets", () => {
+    const r = run([["10/12/2026 14:29:24", "اوسيم", "0", "669", "21", "19"]]);
+    expect(r.submissions[0].late).toBe(true);
+    expect(r.submissions[0].week).toBe("2026-10-04");
+    expect(r.batches[0].rows.some((x) => x.indicator === "target")).toBe(false);
+  });
+});

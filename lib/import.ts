@@ -9,20 +9,43 @@ import type { Sheet } from "./spreadsheet";
 export type Sector = "general" | "azhar";
 export type StagedRow = { week: string; program: string; sector: Sector; grade: string; indicator: string; count: number };
 export type ProgramCatalog = { code: string; grades: string[]; indicators: string[] };
+export type WeekRule = "window" | "previous" | "same";
+/** Per-submission decisions made by the reviewer, keyed by the sheet row number. */
+export type Override = { week?: string; include?: boolean };
 export type ImportOptions = {
   sector: Sector | "column";
   valueMode: "weekly" | "cumulative";
-  weekRule: "previous" | "same";
+  weekRule: WeekRule;
   defaultAdministration?: string;
   defaultWeek?: string;
+  overrides?: Record<number, Override>;
 };
 export type Issue = { level: "error" | "warning"; message: string; row?: number };
 export type ColumnPlan = { index: number; header: string; meaning: HeaderMeaning };
 export type SheetPlan = { format: "wide" | "long"; headerRow: number; columns: ColumnPlan[] };
+/** One form response (wide sheets) as the reviewer sees it. */
+export type SubmissionStatus = "kept" | "superseded" | "excluded";
+export type Submission = {
+  row: number;
+  administration: string;
+  sector: Sector;
+  submitted: string; // as written in the sheet
+  weekday: number | null; // 1 = Monday … 7 = Sunday
+  proposedWeek: string; // what the rule (and resubmission detection) chose
+  week: string; // final week after the reviewer's override
+  overridden: boolean;
+  late: boolean; // after Sunday 4 PM following the week
+  screened: number;
+  status: SubmissionStatus;
+  reasons: string[]; // why superseded / excluded
+  notes: string[]; // cell clean-ups and other things to look at
+  errors: string[]; // problems that block saving while this submission is kept
+};
 export type ImportResult = {
   batches: { administration: string; rows: StagedRow[]; weeks: string[]; screened: number }[];
   issues: Issue[];
   plan: SheetPlan;
+  submissions: Submission[];
 };
 
 const LONG = ["week", "program", "sector", "grade", "indicator", "count"];
@@ -52,9 +75,19 @@ export function planSheet(sheet: Sheet): SheetPlan {
           meaning: lower[index] === "administration" ? { kind: "administration" } : { kind: "unknown", reason: "long" },
         })),
       };
-    const columns = cells.map((header, index) => ({ index, header, meaning: interpretHeader(header) }));
-    if (columns.some((c) => c.meaning.kind === "administration") && columns.some((c) => c.meaning.kind === "screened"))
+    const columns: ColumnPlan[] = cells.map((header, index) => ({ index, header, meaning: interpretHeader(header) }));
+    if (columns.some((c) => c.meaning.kind === "administration") && columns.some((c) => c.meaning.kind === "screened")) {
+      // Some primary sheets shorten a header to "دمج اولي" / "دمج رابعه". Only when the
+      // sheet has primary grades and nothing else is that read as "… ابتدائي".
+      const grades = new Set(columns.flatMap((c) => ("grade" in c.meaning ? [c.meaning.grade] : [])));
+      if ([...grades].every((g) => g === "primary1" || g === "primary4"))
+        for (const c of columns)
+          if (c.meaning.kind === "unknown" && /( |^)(اولي|رابعه)$/.test(normalizeArabic(c.header))) {
+            const again = interpretHeader(c.header + " ابتدائي");
+            if (again.kind !== "unknown") c.meaning = again;
+          }
       return { format: "wide", headerRow: r, columns };
+    }
   }
   throw new Error(
     "مش لاقي صف العناوين. لازم الشيت يكون فيه عمود «الإدارة» وأعمدة «ما تم فحصه» زي شيتات البلاغ الأصلية، أو الأعمدة week,program,sector,grade,indicator,count.",
@@ -64,12 +97,40 @@ export function planSheet(sheet: Sheet): SheetPlan {
 const arabicDigits = /[٠-٩]/g;
 /** Parses a count cell. Empty → null (not reported). Throws a friendly message otherwise. */
 export function parseCount(raw: unknown): number | null {
-  const s = String(raw ?? "").replace(arabicDigits, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[,\s٬]/g, "").trim();
+  const s = String(raw ?? "").replace(arabicDigits, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[,\s٬،]/g, "").trim();
   if (s === "" || s === "-") return null;
   if (!/^\d+(\.0+)?$/.test(s)) throw new Error(`القيمة «${String(raw).slice(0, 20)}» مش رقم صحيح موجب`);
   const n = Number(s);
   if (n > 10_000_000) throw new Error("الرقم أكبر من الحد المسموح");
   return n;
+}
+
+/**
+ * Form cells sometimes hold a number with a word next to it ("25 لوز", "1 قلب مفتوح").
+ * One number → that number, with a note so the reviewer sees what was read.
+ * A stray letter or two ("ج") → treated as empty, with a note. Anything else
+ * (several numbers, negative, decimals, "#VALUE!") → an error for that submission.
+ */
+export function readCell(raw: unknown): { value: number | null; note?: string; error?: string } {
+  try {
+    return { value: parseCount(raw) };
+  } catch (e) {
+    const text = String(raw ?? "").trim();
+    const shown = text.replace(/\s+/g, " ").slice(0, 40);
+    const latin = text.replace(arabicDigits, (d) => String(d.charCodeAt(0) - 0x0660));
+    const numbers = latin.match(/\d+/g) ?? [];
+    if (/^-\s*\d/.test(latin) || /\d[.]\d/.test(latin)) return { value: null, error: `«${shown}» مش رقم صحيح موجب` };
+    if (!numbers.length) {
+      if (text.replace(/\s/g, "").length <= 2) return { value: null, note: `«${shown}» مش رقم، واتعاملت كخانة فاضية` };
+      return { value: null, error: (e as Error).message };
+    }
+    if (numbers.length === 1) {
+      const value = Number(numbers[0]);
+      if (value > 10_000_000) return { value: null, error: "الرقم أكبر من الحد المسموح" };
+      return { value, note: `«${shown}» اتاخد منها الرقم ${value}` };
+    }
+    return { value: null, error: `«${shown}» فيها أكتر من رقم — اكتب رقم واحد أو استبعد الإرسال ده` };
+  }
 }
 
 /** Accepts Excel serial dates, ISO dates and Google Forms "M/D/YYYY H:MM:SS" (Cairo local time). */
@@ -96,8 +157,8 @@ export function parseDateish(raw: unknown): Temporal.PlainDate | null {
   }
   return null;
 }
-/** Sortable number for a submission time: YYYYMMDDhhmmss (time of day if present). */
-function stampOrder(raw: unknown, date: Temporal.PlainDate) {
+/** Seconds since midnight written in a timestamp cell (0 when absent). */
+function stampSeconds(raw: unknown) {
   const s = String(raw ?? "");
   let seconds = 0;
   const serial = s.match(/^\d+\.(\d+)$/);
@@ -109,11 +170,28 @@ function stampOrder(raw: unknown, date: Temporal.PlainDate) {
     else h += 12;
     seconds = h * 3600 + +t[2] * 60 + +(t[3] ?? 0);
   }
+  return seconds;
+}
+/** Sortable number for a submission time: YYYYMMDDhhmmss. */
+function stampOrder(raw: unknown, date: Temporal.PlainDate) {
+  const seconds = stampSeconds(raw);
   const hh = Math.floor(seconds / 3600), mm = Math.floor((seconds % 3600) / 60), ss = seconds % 60;
   return Number(date.toString().replaceAll("-", "")) * 1_000_000 + hh * 10_000 + mm * 100 + ss;
 }
-function sundayOf(d: Temporal.PlainDate) {
+export function sundayOf(d: Temporal.PlainDate) {
   return d.subtract({ days: d.dayOfWeek % 7 });
+}
+/**
+ * Reporting week (Sunday) for a submission date.
+ * window (default): Wednesday → the following Tuesday belong to the week that started
+ *   on the Sunday before — administrations send on Saturday, Sunday morning (deadline
+ *   Sunday 4 PM) or a day or two late.
+ * previous: always the week before the submission's week. same: the submission's week.
+ */
+export function reportingWeek(d: Temporal.PlainDate, rule: WeekRule) {
+  if (rule === "same") return sundayOf(d);
+  if (rule === "previous") return sundayOf(d).subtract({ days: 7 });
+  return sundayOf(d.subtract({ days: 3 }));
 }
 
 type Draft = {
@@ -123,7 +201,10 @@ type Draft = {
   order: number;
   row: number;
   values: Map<string, number>; // key `${kind}|${grade}|${indicator}`
+  submission?: Submission;
 };
+const WEEKDAYS = ["", "الاتنين", "التلات", "الأربع", "الخميس", "الجمعة", "السبت", "الحد"];
+export const weekdayName = (d: number | null) => (d ? WEEKDAYS[d] : "");
 
 export function buildImport(
   sheet: Sheet,
@@ -219,11 +300,18 @@ export function buildImport(
     const timeIndex = col("timestamp");
     let date = weekIndex !== undefined ? parseDateish(cells[weekIndex]) : null;
     let order = rowNo;
+    let weekday: number | null = null;
+    let late = false;
+    const submitted = timeIndex !== undefined ? String(cells[timeIndex] ?? "").trim() : "";
     if (!date && timeIndex !== undefined) {
       const stamp = parseDateish(cells[timeIndex]);
       if (stamp) {
         order = stampOrder(cells[timeIndex], stamp);
-        date = options.weekRule === "previous" ? sundayOf(stamp).subtract({ days: 7 }) : sundayOf(stamp);
+        weekday = stamp.dayOfWeek;
+        date = reportingWeek(stamp, options.weekRule);
+        // Deadline: Sunday 4 PM (Cairo) right after the week ends.
+        const deadline = date.add({ days: 7 });
+        late = Temporal.PlainDate.compare(stamp, deadline) > 0 || (stamp.equals(deadline) && stampSeconds(cells[timeIndex]) >= 16 * 3600);
       }
     }
     if (!date && options.defaultWeek) date = Temporal.PlainDate.from(options.defaultWeek);
@@ -233,19 +321,19 @@ export function buildImport(
     }
     const week = sundayOf(date).toString();
     const values = new Map<string, number>();
-    let bad = false;
+    const notes: string[] = [];
+    const errors: string[] = [];
     for (const c of plan.columns) {
       const m = c.meaning;
       if (m.kind !== "screened" && m.kind !== "target" && m.kind !== "indicator") continue;
-      let count: number | null;
-      try {
-        count = parseCount(cells[c.index]);
-      } catch (e) {
-        fail(`عمود «${c.header.trim()}»: ${(e as Error).message}`);
-        bad = true;
+      const cell = readCell(cells[c.index]);
+      const where = `عمود «${c.header.trim().replace(/\s+/g, " ")}»`;
+      if (cell.error) {
+        errors.push(`${where}: ${cell.error}`);
         continue;
       }
-      if (count === null) continue;
+      if (cell.note) notes.push(`${where}: ${cell.note}`);
+      if (cell.value === null) continue;
       if (m.kind === "indicator") {
         const program = catalog.get(programFor(m.grade));
         if (!program?.indicators.includes(m.indicator)) {
@@ -255,10 +343,25 @@ export function buildImport(
           continue;
         }
       }
-      values.set(`${m.kind}|${m.grade}|${m.kind === "indicator" ? m.indicator : ""}`, count);
+      values.set(`${m.kind}|${m.grade}|${m.kind === "indicator" ? m.indicator : ""}`, cell.value);
     }
-    if (bad) continue;
-    drafts.push({ administration, week, sector, order, row: rowNo, values });
+    const submission: Submission = {
+      row: rowNo,
+      administration,
+      sector,
+      submitted,
+      weekday,
+      proposedWeek: week,
+      week,
+      overridden: false,
+      late,
+      screened: [...values].filter(([k]) => k.startsWith("screened|")).reduce((n, [, v]) => n + v, 0),
+      status: "kept",
+      reasons: [],
+      notes,
+      errors,
+    };
+    drafts.push({ administration, week, sector, order, row: rowNo, values, submission });
   }
 
   if (unknownAdministrations.size)
@@ -274,24 +377,34 @@ export function buildImport(
         .join("، ")}. المشرف العام أو مسؤول البرنامج يقدر يضيفها من صفحة «البرامج والأعوام» قبل الاستيراد.`,
     });
 
+  if (plan.format === "wide") reviewSubmissions(drafts, options.overrides ?? {});
+
   // Duplicate submissions for the same administration/week/sector: keep the latest one.
   const byKey = new Map<string, Draft[]>();
   for (const d of drafts) {
+    if (d.submission?.status === "excluded") continue;
     const k = `${d.administration}|${d.week}|${d.sector}`;
     byKey.set(k, [...(byKey.get(k) ?? []), d]);
   }
   const kept: Draft[] = [];
   for (const [k, list] of byKey) {
     list.sort((a, b) => a.order - b.order || a.row - b.row);
+    const last = list.at(-1)!;
     if (list.length > 1 && plan.format === "wide") {
       const [administration, week, sector] = k.split("|");
+      for (const d of list.slice(0, -1)) {
+        d.submission!.status = "superseded";
+        d.submission!.reasons.push(`فيه إرسال أحدث لنفس الأسبوع (صف ${last.row})، فاتاخد الأحدث`);
+      }
       issues.push({
         level: "warning",
-        message: `${administration} بعتت ${list.length} مرات لأسبوع ${week} (${sector === "azhar" ? "أزهري" : "عام"}) — الصفوف ${list.map((d) => d.row).join("، ")}. اتاخد آخر إرسال بس (صف ${list.at(-1)!.row}).`,
+        message: `${administration} بعتت ${list.length} مرات لأسبوع ${week} (${sector === "azhar" ? "أزهري" : "عام"}) — الصفوف ${list.map((d) => d.row).join("، ")}. اتاخد آخر إرسال بس (صف ${last.row}). تقدر تغيّر ده من جدول الإرسالات.`,
       });
     }
-    kept.push(list.at(-1)!);
+    kept.push(last);
   }
+  // Problems inside a submission only block saving when that submission is used.
+  for (const d of kept) for (const message of d.submission?.errors ?? []) issues.push({ level: "error", row: d.row, message: `${d.administration}: ${message}` });
 
   // Cumulative sheets: convert running totals into new weekly counts.
   if (options.valueMode === "cumulative") {
@@ -326,20 +439,22 @@ export function buildImport(
       const screened = d.values.get(`screened|${grade}|`);
       const findings = [...d.values].filter(([k]) => k.startsWith(`indicator|${grade}|`));
       if (screened === undefined && findings.length) {
-        issues.push({ level: "error", row: d.row, message: `${d.administration} أسبوع ${d.week}: فيه مؤشرات لـ${gradeLabels[grade]} من غير عدد المفحوصين.` });
+        const message = `${d.administration} أسبوع ${d.week}: فيه مؤشرات لـ${gradeLabels[grade]} من غير عدد المفحوصين.`;
+        issues.push({ level: "error", row: d.row, message });
+        d.submission?.errors.push(message);
         continue;
       }
       for (const [k, v] of findings)
-        if (screened !== undefined && v > screened)
-          issues.push({
-            level: "error",
-            row: d.row,
-            message: `${d.administration} أسبوع ${d.week}: «${indicatorLabel(k.split("|")[2]) ?? k}» (${v}) أكبر من عدد المفحوصين (${screened}) في ${gradeLabels[grade]}.`,
-          });
+        if (screened !== undefined && v > screened) {
+          const message = `${d.administration} أسبوع ${d.week}: «${indicatorLabel(k.split("|")[2]) ?? k}» (${v}) أكبر من عدد المفحوصين (${screened}) في ${gradeLabels[grade]}.`;
+          issues.push({ level: "error", row: d.row, message });
+          d.submission?.errors.push(message);
+        }
       if (screened !== undefined) rows.push({ week: d.week, program, sector: d.sector, grade, indicator: "screened", count: screened });
       for (const [k, v] of findings) rows.push({ week: d.week, program, sector: d.sector, grade, indicator: k.split("|")[2], count: v });
       const target = d.values.get(`target|${grade}|`);
-      if (target !== undefined) {
+      // A zero target means "not filled in" in the forms; the latest real target wins.
+      if (target !== undefined && target > 0) {
         const tk = `${d.administration}|${d.sector}|${grade}`;
         const old = latestTarget.get(tk);
         if (!old || old.week <= d.week)
@@ -363,6 +478,7 @@ export function buildImport(
   return {
     plan,
     issues,
+    submissions: drafts.flatMap((d) => (d.submission ? [d.submission] : [])).sort((a, b) => a.row - b.row),
     batches: [...batches].map(([administration, rows]) => ({
       administration,
       rows,
@@ -370,4 +486,82 @@ export function buildImport(
       screened: rows.filter((r) => r.indicator === "screened").reduce((n, r) => n + r.count, 0),
     })),
   };
+}
+
+const signature = (values: Map<string, number>, prefix?: string) =>
+  [...values]
+    .filter(([k]) => !prefix || k.startsWith(prefix))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => k + "=" + v)
+    .join(";");
+
+/**
+ * Applies what the forms data shows in practice, always visibly and always overridable:
+ * - a submission with nothing screened is set aside;
+ * - a resubmission (same screened counts as an earlier one from the same administration)
+ *   is a correction of that earlier report, so it goes to the same week;
+ * - targets copied from another administration are ignored;
+ * - then the reviewer's own choices (week / include) win.
+ */
+function reviewSubmissions(drafts: Draft[], overrides: Record<number, Override>) {
+  const ordered = [...drafts].sort((a, b) => a.order - b.order || a.row - b.row);
+  const seen = new Map<string, Draft>();
+  for (const d of ordered) {
+    const s = d.submission!;
+    const screenedSig = signature(new Map([...d.values].filter(([k, v]) => k.startsWith("screened|") && v > 0)));
+    const anything = [...d.values].some(([k, v]) => !k.startsWith("target|") && v > 0);
+    if (!anything) {
+      s.status = "excluded";
+      s.reasons.push("مفيش أي فحص أو حالات في الإرسال ده (كله أصفار أو فاضي)");
+    } else if (screenedSig) {
+      const key = `${d.administration}|${d.sector}|${screenedSig}`;
+      const earlier = seen.get(key);
+      if (earlier) {
+        const identical = signature(earlier.values) === signature(d.values);
+        d.week = earlier.week;
+        s.proposedWeek = earlier.week;
+        s.notes.push(
+          identical
+            ? `نسخة مطابقة لإرسال صف ${earlier.row} — اتحسبت على نفس الأسبوع`
+            : `نفس أعداد المفحوصين بتاعة إرسال صف ${earlier.row}، فاتعاملت كتعديل لنفس البلاغ (نفس الأسبوع)`,
+        );
+      } else seen.set(key, d);
+    }
+  }
+  // Targets identical to another administration's are almost certainly copied by mistake.
+  const targetSigs = new Map<string, Set<string>>();
+  for (const d of drafts) {
+    const sig = signature(new Map([...d.values].filter(([k, v]) => k.startsWith("target|") && v > 0)));
+    if (sig) targetSigs.set(sig, new Set([...(targetSigs.get(sig) ?? []), d.administration]));
+  }
+  for (const d of drafts) {
+    const sig = signature(new Map([...d.values].filter(([k, v]) => k.startsWith("target|") && v > 0)));
+    const owners = sig ? targetSigs.get(sig) : undefined;
+    if (owners && owners.size > 1) {
+      const others = [...owners].filter((n) => n !== d.administration);
+      // Keep the targets for the administration that used them most often.
+      const count = (name: string) => drafts.filter((x) => x.administration === name && signature(new Map([...x.values].filter(([k, v]) => k.startsWith("target|") && v > 0))) === sig).length;
+      if (others.some((n) => count(n) > count(d.administration))) {
+        for (const k of [...d.values.keys()]) if (k.startsWith("target|")) d.values.delete(k);
+        d.submission!.notes.push(`المستهدفات في الإرسال ده هي نفسها مستهدفات ${others.join("، ")} — اتجاهلت`);
+      }
+    }
+  }
+  for (const d of drafts) {
+    const s = d.submission!;
+    const o = overrides[s.row];
+    if (!o) continue;
+    if (o.week && o.week !== d.week) {
+      d.week = o.week;
+      s.overridden = true;
+    }
+    if (o.include === false && s.status !== "excluded") {
+      s.status = "excluded";
+      s.reasons.push("استبعدته من المراجعة");
+    } else if (o.include === true && s.status === "excluded") {
+      s.status = "kept";
+      s.reasons = [];
+    }
+  }
+  for (const d of drafts) d.submission!.week = d.week;
 }

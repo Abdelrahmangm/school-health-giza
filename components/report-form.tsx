@@ -40,6 +40,16 @@ export function ReportForm({
   return (
     <form
       className="card"
+      onKeyDown={(event) => {
+        // Enter advances to the next numeric cell without triggering a full form submit.
+        // Native Tab and Shift+Tab remain available for accessible keyboard navigation.
+        if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement) || event.target.type !== "number") return;
+        event.preventDefault();
+        const inputs = Array.from(event.currentTarget.querySelectorAll<HTMLInputElement>('input[type="number"]:not(:disabled)'));
+        const index = inputs.indexOf(event.target);
+        inputs[index + 1]?.focus();
+        inputs[index + 1]?.select();
+      }}
       onSubmit={(event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
@@ -126,17 +136,17 @@ export function ReportForm({
         <input type="hidden" name="revision_id" value={revisionId} />
       )}
       <p className="notice subsection">
-        أدخل المفحوصين الجدد خلال الأسبوع، وليس العدد التراكمي. اختر الصفوف التي
-        تشملها هذه النسخة؛ الحفظ يستبدل محتوى المسودة بالكامل. يمكن أن تتداخل
-        المؤشرات، لكن لا يتجاوز أي مؤشر عدد المفحوصين.
+        سجّل عدد الطلبة اللي اتفحصوا في الأسبوع ده بس، مش الإجمالي من بداية السنة. اختار الصفوف اللي
+        هتدخل بياناتها. الحفظ بيحدّث المسودة الحالية بالكامل. الطفل ممكن يظهر في أكتر من مؤشر طبي، لكن عدد أي مؤشر ما ينفعش يزيد عن عدد المفحوصين.
       </p>
+      <p className="field-help">للإدخال السريع: اضغط Enter بعد أي رقم للانتقال للخانة الرقمية اللي بعدها، أو Tab للتنقل الطبيعي بين كل الحقول. مفيش حفظ تلقائي؛ اضغط «حفظ المسودة» بعد ما تخلص.</p>
       {active.map((p) => (
         <section key={p.id} className="subsection">
           <h2>
             {p.name_ar} <span className="badge">إصدار {p.version}</span>
           </h2>
-          <div className="table-wrap">
-            <table>
+          <div className="table-wrap report-entry-wrapper">
+            <table className="report-entry-table">
               <thead>
                 <tr>
                   <th>تضمين</th>

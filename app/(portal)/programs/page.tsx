@@ -1,5 +1,5 @@
 import { dataset, session } from "@/lib/data";
-import { latestPrograms, labels } from "@/lib/domain";
+import { latestPrograms, labels, isOperator } from "@/lib/domain";
 import { saveProgram, createYear } from "@/app/actions";
 export default async function Programs() {
   const d = await dataset();
@@ -14,7 +14,7 @@ export default async function Programs() {
         رياض أطفال ثانية للإبصار فقط في 2026–27. مؤشرات الفحص الشامل الحالية
         قائمة أولية تحتاج اعتماد المديرية؛ لا تعني مطابقة نموذج الوزارة.
       </div>
-      {profile.role === "directorate_admin" && (
+      {isOperator(profile.role) && (
         <>
           <section className="card">
             <h2>إضافة عام دراسي</h2>

@@ -22,6 +22,6 @@ const menu=[
 ];
 export function PortalNav({role}:{role:string}){
  const pathname=usePathname();
- const visible=[...menu,...(role!=="directorate_viewer"?[{href:"/imports",label:"استيراد البيانات",icon:"imports"}]:[]),...(role==="directorate_admin"?[{href:"/users",label:"المستخدمون والصلاحيات",icon:"users"},{href:"/audit",label:"سجل التدقيق",icon:"audit"}]:[])];
+ const visible=[...menu,...(role!=="directorate_viewer"?[{href:"/imports",label:"استيراد البيانات",icon:"imports"}]:[]),...(["directorate_admin","directorate_supervisor","program_manager"].includes(role)?[{href:"/users",label:"المستخدمون والصلاحيات",icon:"users"},{href:"/audit",label:"سجل التدقيق",icon:"audit"}]:[])];
  return <nav aria-label="التنقل الرئيسي">{visible.map(item=><Link key={item.href} href={item.href} aria-current={pathname===item.href?"page":undefined} className={"sidebar-link"+(pathname===item.href||item.href!=="/"&&pathname.startsWith(item.href+"/")?" is-active":"")}><span className="sidebar-symbol"><UiIcon name={item.icon}/></span><span>{item.label}</span></Link>)}</nav>;
 }

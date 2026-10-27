@@ -2,6 +2,8 @@ import { Temporal } from "@js-temporal/polyfill";
 import { z } from "zod";
 export const roles = [
   "directorate_admin",
+  "directorate_supervisor",
+  "program_manager",
   "directorate_viewer",
   "administration_data_entry",
 ] as const;
@@ -73,9 +75,11 @@ export type Target = {
 export const labels: Record<string, string> = Object.assign(
   Object.create(null),
   {
-    directorate_admin: "مدير المديرية",
-    directorate_viewer: "مشاهد المديرية",
-    administration_data_entry: "مدخل بيانات الإدارة",
+    directorate_admin: "مشرف عام (الدور القديم)",
+    directorate_supervisor: "مدير إدارة الصحة المدرسية — مشرف عام",
+    program_manager: "مسؤول البرنامج — تشغيل ومتابعة",
+    directorate_viewer: "فريق المديرية — اطلاع فقط",
+    administration_data_entry: "مسؤول الإدارة الصحية — إدارته فقط",
     general: "عام",
     azhar: "أزهري",
     combined: "القطاعان معًا",
@@ -119,6 +123,8 @@ export function deadline(week: string) {
     .toInstant()
     .toString();
 }
+export function isOperator(role: Role) { return ["directorate_admin","directorate_supervisor","program_manager"].includes(role); }
+export function isSupervisor(role: Role) { return role === "directorate_admin" || role === "directorate_supervisor"; }
 export function canEdit(
   role: Role,
   week: string,
@@ -126,7 +132,7 @@ export function canEdit(
   reopenedUntil?: string | null,
 ) {
   if (role === "directorate_viewer") return false;
-  if (role === "directorate_admin") return true;
+  if (isOperator(role)) return true;
   const limit = Math.max(
     Date.parse(deadline(week)),
     reopenedUntil ? Date.parse(reopenedUntil) : 0,

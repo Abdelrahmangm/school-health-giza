@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { session } from "@/lib/data";
 import { supabase, configured } from "@/lib/supabase";
-import { authorize, linesSchema, previewImport } from "@/lib/domain";
+import { authorize, linesSchema, previewImport, isOperator, isSupervisor } from "@/lib/domain";
 const text = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
 const uuid = (f: FormData, k: string) => z.uuid().parse(text(f, k));
 async function mutate(
@@ -14,7 +14,7 @@ async function mutate(
 ) {
   const { db, profile } = await session();
   authorize(profile, true);
-  if (adminOnly && profile.role !== "directorate_admin")
+  if (adminOnly && !isOperator(profile.role))
     throw new Error("FORBIDDEN");
   const { data, error } = await db.rpc(name, args);
   if (error) {
@@ -140,6 +140,8 @@ export async function createYear(f: FormData) {
   );
 }
 export async function assignRole(f: FormData) {
+  const {profile}=await session();
+  if (!isSupervisor(profile.role)) throw new Error("FORBIDDEN");
   await mutate(
     "assign_role",
     {
@@ -147,6 +149,8 @@ export async function assignRole(f: FormData) {
       new_role: z
         .enum([
           "directorate_admin",
+          "directorate_supervisor",
+          "program_manager",
           "directorate_viewer",
           "administration_data_entry",
         ])

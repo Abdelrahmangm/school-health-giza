@@ -39,6 +39,22 @@ npm run dev
 
 العمليات الحية لا تستمر بعد استعادة snapshot. أعد تشغيل الخادم عند بداية المهمة. بعد تغيير متغيرات NEXT_PUBLIC في تشغيل إنتاجي اختباري، أعد `npm run build` لأن Next.js يضمّن قيمها وقت البناء. لا تُنشئ رابط معاينة عامًا أو تنشر قبل مراجعة الأمان.
 
+## إعدادات الإصدار ده (الأداء، الدعوات، الاستيراد)
+
+1. **Migration جديدة:** `supabase/migrations/202610270003_performance_users_import.sql` إضافية فقط (مفيش حذف لأي جدول أو عمود أو بيانات). تتطبق بعد 0001 و0002 على مشروع **الاختبار** الأول. على الإنتاج: بعد موافقتك فقط.
+2. **متغيرات Vercel (Settings → Environment Variables):**
+   - `SUPABASE_SECRET_KEY`: مفتاح Supabase السري (Settings → API Keys → Secret key) أو service_role القديم. **من غير** بادئة `NEXT_PUBLIC_`. بيُستخدم على الخادم بس لإرسال إيميلات الدعوة وتغيير كلمة السر؛ الصلاحيات نفسها بتتكتب بجلسة المشرف العام وRLS. فحص `npm run check:bundle` بيمنع ظهوره في ملفات المتصفح.
+   - `SITE_URL`: عنوان الموقع، مثلًا `https://school-health-giza.vercel.app`.
+3. **Supabase → Authentication → URL Configuration:** Site URL = نفس `SITE_URL`، وضيف في Redirect URLs: `https://school-health-giza.vercel.app/auth/accept` و`/auth/callback` و`/auth/confirm`.
+4. **SMTP:** خدمة البريد المدمجة في Supabase محدودة جدًا (بضع رسائل في الساعة). اضبط SMTP حقيقي (Authentication → Emails → SMTP Settings).
+5. **قوالب الإيميل:** القوالب الافتراضية (`{{ .ConfirmationURL }}`) تشتغل كما هي مع صفحة `/auth/accept`. لو حبيت تعرّبها، سيب الرابط زي ما هو وغيّر النص بس.
+6. **Disable signups:** لازم يفضل التسجيل العام مقفول؛ الحسابات بالدعوة بس.
+7. **مؤشرات الشيتات الأصلية:** الفحص الشامل حاليًا فيه 5 مؤشرات أولية، والشيتات الأصلية فيها حوالي 30. صفحة «البرامج والأعوام» فيها زرار يضيفها كإصدار جديد بعد مراجعتها مع المديرية؛ من غيرها استيراد الشيتات القديمة هيقف برسالة واضحة.
+
+## اختبار تكامل من غير Docker
+
+`scripts/test-integration-local.sh` بيشغّل قاعدة PostgreSQL مؤقتة وملفات Supabase Auth وPostgREST الرسمية وبوابة صغيرة وخادم بريد محلي بيحفظ الرسائل في ملفات بس (مش بيبعت لأي حد). محتاج `PG_BIN` و`GOTRUE_DIR` و`POSTGREST_BIN` (CI بينزّلهم). `SEED_VOLUME=1 PLAYWRIGHT_CONFIG=playwright.perf.config.ts` بيقيس سرعة الصفحات على سنة كاملة من بيانات DEMO.
+
 ## اختبارات قاعدة البيانات
 
 `npm run test:db` يستخدم PostgreSQL 17 في حاوية مؤقتة بلا منفذ منشور. توجد fixture مبسطة لـ `auth.uid()` و`auth.users` لاختبار RLS والدوال بصفة authenticated/anon. بيانات DEMO تُلغى بـ rollback، والحاوية تُحذف حتى عند الفشل. هذا لا يثبت إعداد خدمة Auth المستضافة.

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "tests/e2e",
-  testMatch: "authenticated.spec.ts",
+  testMatch: ["authenticated.spec.ts", "invitations.spec.ts"],
   workers: 1,
   expect: { timeout: 15000 },
   timeout: 180000,

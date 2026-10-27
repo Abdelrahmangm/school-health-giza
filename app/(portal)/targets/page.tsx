@@ -1,10 +1,12 @@
-import { dataset, session } from "@/lib/data";
+import { filters, reference, session, targetsFor } from "@/lib/data";
 import { labels, latestPrograms, isOperator } from "@/lib/domain";
 import { proposeTarget, reviewTarget } from "@/app/actions";
-export default async function Targets() {
-  const d = await dataset();
-  const { profile } = await session();
-  const programs = latestPrograms(d.programs).filter((p) => p.enabled);
+import { Flash } from "@/components/flash";
+export default async function Targets({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const [ref, { profile }, params] = await Promise.all([reference(), session(), searchParams]);
+  const f = filters(params, ref.years);
+  const d = { ...ref, targets: await targetsFor(f.year) };
+  const programs = latestPrograms(d.programs).filter((p) => p.enabled && p.school_year_id === f.year);
   return (
     <>
       <h1>المستهدفات السنوية</h1>
@@ -12,6 +14,20 @@ export default async function Targets() {
         اقتراحات منفصلة لكل عام وإدارة وبرنامج وقطاع وصف. الاعتماد يحفظ النسخة
         السابقة وتاريخ النفاذ.
       </p>
+      <Flash params={params} />
+      <form className="card filters compact-filters" method="get">
+        <label>
+          العام الدراسي
+          <select name="year" defaultValue={f.year}>
+            {d.years.map((y) => (
+              <option key={y.id} value={y.id}>
+                {y.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button>عرض</button>
+      </form>
       <div className="notice">
         المستهدف السنوي لا يُجمع عند جمع أسابيع الفحص. المقترحات لا تدخل في
         المؤشرات الرسمية.

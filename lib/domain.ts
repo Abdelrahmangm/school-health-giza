@@ -1,5 +1,6 @@
 import { Temporal } from "@js-temporal/polyfill";
 import { z } from "zod";
+import { INDICATORS } from "./catalog";
 export const roles = [
   "directorate_admin",
   "directorate_supervisor",
@@ -12,6 +13,11 @@ export type Profile = {
   user_id: string;
   role: Role;
   administration_id: string | null;
+  full_name?: string | null;
+  email?: string | null;
+  status?: "active" | "disabled";
+  created_at?: string;
+  invited_by?: string | null;
 };
 export type Administration = { id: string; name_ar: string };
 export type SchoolYear = {
@@ -74,6 +80,7 @@ export type Target = {
 };
 export const labels: Record<string, string> = Object.assign(
   Object.create(null),
+  Object.fromEntries(INDICATORS.map((i) => [i.code, i.label])),
   {
     directorate_admin: "مشرف عام (الدور القديم)",
     directorate_supervisor: "مدير إدارة الصحة المدرسية — مشرف عام",
@@ -240,6 +247,29 @@ export function aggregate(
   for (const l of rows)
     for (const [k, v] of Object.entries(l.findings))
       findings[k] = (findings[k] || 0) + v;
+  const target = effectiveTarget(targets, f, match);
+  return {
+    screened,
+    target,
+    achievement: target ? (screened / target) * 100 : null,
+    findings,
+    rates: Object.fromEntries(
+      Object.entries(findings).map(([k, v]) => [
+        k,
+        screened ? (v / screened) * 100 : null,
+      ]),
+    ),
+    reportCount: selected.size,
+    rows,
+  };
+}
+
+/** Sum of the annual target versions in force at f.asOf (latest approval per key; never summed across versions or weeks). */
+export function effectiveTarget(
+  targets: Target[],
+  f: Filters,
+  match: (t: { sector: string; program_code?: string; grade_code: string }) => boolean,
+) {
   const targetMap = new Map<string, Target>();
   for (const t of targets.filter(
     (t) =>
@@ -268,21 +298,9 @@ export function aggregate(
     (n, t) => n + t.target_count,
     0,
   );
-  return {
-    screened,
-    target,
-    achievement: target ? (screened / target) * 100 : null,
-    findings,
-    rates: Object.fromEntries(
-      Object.entries(findings).map(([k, v]) => [
-        k,
-        screened ? (v / screened) * 100 : null,
-      ]),
-    ),
-    reportCount: selected.size,
-    rows,
-  };
+  return target;
 }
+
 export function csvCell(v: unknown) {
   let s = String(v ?? "");
   if (/^[=+\-@\t\r\n]/.test(s)) s = "'" + s;
@@ -391,4 +409,36 @@ export function expectedWeeks(
     cursor = cursor.add({ days: 7 });
   }
   return result;
+}
+
+/** Server-aggregated facts (public.report_facts). One entry per administration/week?/program/sector/grade. */
+export type Fact = { a: string; w: string | null; p: string; s: string; g: string; n: number; f: Record<string, number> };
+export type FactSet = { facts: Fact[]; reports: { a: string; w: string }[] };
+
+/** Same rules and results as aggregate(), computed from pre-grouped database facts. */
+export function aggregateFacts(data: FactSet, targets: Target[], f: Filters) {
+  const match = (l: { sector: string; program_code?: string; grade_code: string }) =>
+    (f.sector === "combined" || l.sector === f.sector) && (!f.program || l.program_code === f.program) && (!f.grade || l.grade_code === f.grade);
+  const inScope = (a: string, w: string | null) =>
+    (!f.administration || a === f.administration) && (!w || ((!f.from || w >= f.from) && (!f.to || w <= f.to)));
+  let screened = 0;
+  const findings: Record<string, number> = Object.create(null);
+  for (const x of data.facts) {
+    if (!inScope(x.a, x.w) || !match({ sector: x.s, program_code: x.p, grade_code: x.g })) continue;
+    screened += Number(x.n);
+    for (const [k, v] of Object.entries(x.f)) findings[k] = (findings[k] || 0) + Number(v);
+  }
+  const target = effectiveTarget(
+    targets.filter((t) => !f.administration || t.administration_id === f.administration),
+    f,
+    match,
+  );
+  return {
+    screened,
+    target,
+    achievement: target ? (screened / target) * 100 : null,
+    findings,
+    rates: Object.fromEntries(Object.entries(findings).map(([k, v]) => [k, screened ? (v / screened) * 100 : null])),
+    reportCount: data.reports.filter((r) => inScope(r.a, r.w)).length,
+  };
 }

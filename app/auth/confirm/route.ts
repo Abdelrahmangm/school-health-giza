@@ -10,6 +10,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/auth/set-password", request.url));
   }
   return NextResponse.redirect(
-    new URL("/login?error=credentials", request.url),
+    new URL("/login?error=link", request.url),
   );
 }

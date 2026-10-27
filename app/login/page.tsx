@@ -9,6 +9,7 @@ export default async function Login({
   const { error } = await searchParams;
   return (
     <main className="auth">
+      <img className="auth-logo" src="/school-health-logo.png" alt="شعار إدارة الصحة المدرسية والشباب بالجيزة" width="96" height="96" />
       <p className="eyebrow">مديرية الشؤون الصحية بالجيزة</p>
       <h1>منصة الفحص الصحي المدرسي</h1>
       <p className="muted">دخول آمن للبلاغات الأسبوعية والمستهدفات.</p>
@@ -16,8 +17,12 @@ export default async function Login({
         {error && (
           <p className="error" role="alert">
             {error === "profile"
-              ? "الحساب غير مرتبط بصلاحية. راجع مسؤول النظام."
-              : "تعذر الدخول. تحقق من بيانات الحساب."}
+              ? "حسابك لسه مش متربط بصلاحية. كلّم المشرف العام."
+              : error === "disabled"
+                ? "الحساب ده موقوف. لو ده غلط، كلّم المشرف العام."
+                : error === "link"
+                  ? "الرابط انتهت صلاحيته أو اتستخدم قبل كده. اطلب رابط جديد من «نسيت كلمة السر»."
+                  : "الإيميل أو كلمة السر مش صح. جرّب تاني."}
           </p>
         )}
         {configured() ? (
@@ -44,6 +49,7 @@ export default async function Login({
               />
             </label>
             <button>تسجيل الدخول</button>
+            <Link href="/auth/forgot">نسيت كلمة السر؟</Link>
           </form>
         ) : (
           <>
@@ -54,8 +60,8 @@ export default async function Login({
           </>
         )}
         <p className="subsection muted">
-          الحسابات بالدعوة فقط. لا يوجد تسجيل عام. يُمنع إدخال معلومات صحية تحدد
-          هوية الطالب.
+          الحسابات بالدعوة من المشرف العام بس، ومفيش تسجيل عام. ممنوع إدخال أي بيانات
+          بتحدد هوية الطالب.
         </p>
       </section>
     </main>

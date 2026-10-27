@@ -69,3 +69,30 @@ thead th{background:#f5faf6;font-weight:800}td,th{border-bottom-color:#ecf1eb}
 .report-entry-wrapper{overscroll-behavior-x:contain;scrollbar-gutter:stable}
 .field-help{display:block;color:#637e72;font-size:11px;line-height:1.7;font-weight:400}
 .redesigned-sidebar nav a.sidebar-link:focus-visible{outline:3px solid #93cdb5}
+
+/* Messages, paging, import review and data-entry feedback */
+.flash{border-radius:14px;padding:11px 14px;margin:0 0 12px;font-size:13px;line-height:1.8;border:1px solid}
+.flash ul{margin:6px 0 0;padding-inline-start:20px}
+.flash-ok{background:#ecf9f1;border-color:#bfe6cf;color:#145c45}
+.flash-error{background:#fff2f0;border-color:#f3c6bf;color:#9b2c1f}
+.flash-warning{background:#fff9ea;border-color:#f0dfa8;color:#7a5a12}
+.flash-warning summary{cursor:pointer;font-weight:700}
+.pager{display:flex;gap:16px;align-items:center;justify-content:center;padding:14px 0 4px;font-size:13px}
+.compact-filters{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.compact-filters label{min-width:180px}
+.report-entry-table input[aria-invalid=true]{border-color:#d4483a;background:#fff4f2;outline-color:#d4483a}
+.report-entry-table tr.row-invalid td{background:#fff8f6}
+.report-entry-table tr.sector-azhar td:nth-child(2){color:#7c5a12;font-weight:700}
+.sticky-actions{position:sticky;bottom:0;background:linear-gradient(transparent,#fff 30%);padding:14px 0 6px;z-index:3}
+.report-form kbd{border:1px solid #cfdcd4;border-bottom-width:2px;border-radius:5px;padding:0 5px;font-size:10px;background:#fbfdfb}
+tr.row-changed td{background:#fffaf0}
+tr.row-invalid td{background:#fff6f4}
+tr.row-muted td{color:#9aa79f}
+tr.row-disabled td{opacity:.6}
+.users-table details form{min-width:260px;margin-top:8px}
+.users-table summary{cursor:pointer;color:#16765c;font-weight:700}
+.steps{line-height:2;padding-inline-start:22px}
+.auth-logo{display:block;margin:0 auto 12px;border-radius:50%;background:#fff;box-shadow:0 4px 18px #2c5a4515}
+/* Long tables render off-screen rows lazily */
+.table-wrap tbody tr{content-visibility:auto;contain-intrinsic-size:auto 44px}
+.report-entry-table tbody tr{content-visibility:visible}

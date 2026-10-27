@@ -1,26 +1,27 @@
 import { saveSnapshot } from "@/app/actions";
-import { dataset, filters, session, all } from "@/lib/data";
-import { aggregate, labels, expectedWeeks } from "@/lib/domain";
+import { facts, filters, reference, session, targetsFor } from "@/lib/data";
+import { aggregateFacts, labels, expectedWeeks } from "@/lib/domain";
 import { FilterForm } from "@/components/filters";
+import { Flash } from "@/components/flash";
 export default async function Analytics({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const d = await dataset();
-  const { profile } = await session();
-  const snapshots = await all<{
-    id: string;
-    created_at: string;
-    filters: Record<string, string>;
-  }>("report_snapshots");
-  const p = await searchParams;
+  const [d, { profile, db }, p] = await Promise.all([reference(), session(), searchParams]);
   const f = filters(p, d.years);
+  // Weekly facts are grouped in PostgreSQL; the page never downloads raw report lines.
+  const [weekly, targets, snapshotResult] = await Promise.all([
+    facts(f, true, true),
+    targetsFor(f.year),
+    db.from("report_snapshots").select("id,created_at,filters").order("created_at", { ascending: false }).limit(50),
+  ]);
+  const snapshots = (snapshotResult.data ?? []) as { id: string; created_at: string; filters: Record<string, string> }[];
   const comparisons = d.administrations
     .filter((a) => !f.administration || a.id === f.administration)
     .map((a) => ({
       name: a.name_ar,
-      ...aggregate(d.submissions, d.revisions, d.lines, d.targets, {
+      ...aggregateFacts(weekly, targets, {
         ...f,
         administration: a.id,
       }),
@@ -31,9 +32,21 @@ export default async function Analytics({
     f.to,
     new Date().toISOString(),
   );
+  // Bucket facts by week once, so each week only scans its own rows.
+  const byWeek = new Map<string, typeof weekly>();
+  for (const x of weekly.facts) {
+    const b = byWeek.get(x.w ?? "") ?? { facts: [], reports: [] };
+    b.facts.push(x);
+    byWeek.set(x.w ?? "", b);
+  }
+  for (const r of weekly.reports) {
+    const b = byWeek.get(r.w) ?? { facts: [], reports: [] };
+    b.reports.push(r);
+    byWeek.set(r.w, b);
+  }
   const trend = weeks.map((w) => ({
     week: w,
-    ...aggregate(d.submissions, d.revisions, d.lines, d.targets, {
+    ...aggregateFacts(byWeek.get(w) ?? { facts: [], reports: [] }, targets, {
       ...f,
       from: w,
       to: w,
@@ -62,6 +75,7 @@ export default async function Analytics({
           تنزيل CSV تحليلي
         </a>
       </div>
+      <Flash params={p} />
       <FilterForm {...d} value={f} />
       {profile.role !== "directorate_viewer" && (
         <form action={saveSnapshot} className="card">

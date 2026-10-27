@@ -1,21 +1,23 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { dataset, session } from "@/lib/data";
-import { labels, deadline, canEdit, isOperator } from "@/lib/domain";
+import { reference, reportDetail, session } from "@/lib/data";
+import { labels, deadline, canEdit, isOperator, latestPrograms } from "@/lib/domain";
 import { ReportForm } from "@/components/report-form";
+import { Flash } from "@/components/flash";
 import { transitionReport, reopenReport } from "@/app/actions";
 export default async function Report({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const { id } = await params;
-  const d = await dataset();
-  const { profile } = await session();
-  const r = d.revisions.find((r) => r.id === id);
-  if (!r) notFound();
-  const s = d.submissions.find((s) => s.id === r.submission_id)!;
-  const lines = d.lines.filter((l) => l.revision_id === id);
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
+  // Only this report: one revision, its submission/history and its lines (not the whole database).
+  const [detail, ref, { profile }] = await Promise.all([reportDetail(id), reference(), session()]);
+  if (!detail) notFound();
+  const { revision: r, submission: s, lines } = detail;
   const editor = canEdit(
     profile.role,
     s.week_start,
@@ -23,18 +25,14 @@ export default async function Report({
     s.reopened_until,
   );
   const editable = editor && ["draft", "needs_correction"].includes(r.status);
-  const history = d.revisions
-    .filter((v) => v.submission_id === s.id)
-    .sort((a, b) => b.revision_number - a.revision_number);
+  const history = [...s.submission_revisions].sort((a, b) => b.revision_number - a.revision_number);
+  const administrationName = ref.administrations.find((a) => a.id === s.administration_id)?.name_ar;
   return (
     <>
       <div className="page-head">
         <div>
           <p className="eyebrow">
-            {
-              d.administrations.find((a) => a.id === s.administration_id)
-                ?.name_ar
-            }{" "}
+            {administrationName}{" "}
             · أسبوع {s.week_start}
           </p>
           <h1>البلاغ الأسبوعي · النسخة {r.revision_number}</h1>
@@ -42,6 +40,7 @@ export default async function Report({
         </div>
         <Link href="/reports">كل البلاغات ←</Link>
       </div>
+      <Flash params={query} />
       <p className="notice">
         موعد الإغلاق:{" "}
         {new Date(deadline(s.week_start)).toLocaleString("ar-EG", {
@@ -56,7 +55,9 @@ export default async function Report({
       )}
       {editable ? (
         <ReportForm
-          {...d}
+          administrations={ref.administrations.filter((a) => a.id === s.administration_id)}
+          years={ref.years.filter((y) => y.id === s.school_year_id)}
+          programs={latestPrograms(ref.programs).filter((p) => p.enabled && p.school_year_id === s.school_year_id)}
           initial={lines}
           administration={s.administration_id}
           year={s.school_year_id}
@@ -143,20 +144,16 @@ export default async function Report({
         {isOperator(profile.role) && (
           <form action={reopenReport} className="grid subsection">
             <input type="hidden" name="submission_id" value={s.id} />
+            <input type="hidden" name="return_to" value={"/reports/" + r.id} />
             <label>
-              إعادة الفتح حتى (ISO مع المنطقة الزمنية)
-              <input
-                name="until_at"
-                placeholder="2026-11-02T16:00:00+02:00"
-                required
-                dir="ltr"
-              />
+              إعادة الفتح لحد (بتوقيت القاهرة)
+              <input name="until_local" type="datetime-local" required />
             </label>
             <label>
               سبب إعادة الفتح
               <input name="reason" required maxLength={2000} />
             </label>
-            <button>إعادة الفتح — بحد أقصى 7 أيام</button>
+            <button className="secondary">إعادة فتح البلاغ — 7 أيام بحد أقصى</button>
           </form>
         )}
       </section>

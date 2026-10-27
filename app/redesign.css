@@ -55,3 +55,17 @@ thead th{background:#f5faf6;font-weight:800}td,th{border-bottom-color:#ecf1eb}
 @media(max-width:1220px){.redesigned-shell{grid-template-columns:198px minmax(0,1fr)}.dashboard-columns{grid-template-columns:1fr 1fr}.dashboard-columns>.card:last-child{grid-column:1/-1}.dashboard-filters .filters{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:900px){.redesigned-shell{display:block;padding:7px}.redesigned-sidebar{border-radius:18px;padding:8px;margin-bottom:8px}.redesigned-brand{display:flex;align-items:center;gap:10px;text-align:right;padding:5px;border:0}.redesigned-brand-img{width:48px;height:48px;margin:0}.redesigned-sidebar nav{display:flex;flex-direction:row;overflow-x:auto}.redesigned-sidebar nav a.sidebar-link{white-space:nowrap}.redesigned-sidebar footer,.redesigned-menu-heading{display:none}.redesigned-workspace{border-radius:18px}.redesigned-content{padding:16px}.two{grid-template-columns:1fr}}
 @media(max-width:700px){.redesigned-content{padding:12px}.dashboard-columns{grid-template-columns:1fr}.dashboard-columns>.card:last-child{grid-column:auto}.dashboard-filters .filters{grid-template-columns:repeat(2,1fr)}.dashboard-kpis{grid-template-columns:repeat(2,1fr);gap:9px}.dashboard-kpi{min-height:123px;padding:14px}.dashboard-kpi strong{font-size:21px}.dashboard-kpi-icon{height:32px;width:32px}.dashboard-hero{padding:16px;min-height:126px}.dashboard-hero-copy h1{font-size:19px}.dashboard-hero-circle{display:none}.dashboard-hero-year{min-width:90px;padding:9px 6px}.redesigned-topbar{padding:12px}.redesigned-role{display:none}.redesigned-top-title strong{font-size:12px}.dashboard-workflow{gap:1px}.dashboard-stage{font-size:9px}.dashboard-stage-bubble{height:35px;width:35px}.dashboard-stage:before{top:26px}.dashboard-admin-row{grid-template-columns:minmax(94px,1fr) 1fr 36px}}
+
+/* RTL navigation and faster large report tables */
+@media (min-width:901px){
+ .redesigned-shell{direction:rtl;grid-template-columns:230px minmax(0,1fr)}
+ .redesigned-shell>*{direction:rtl}
+}
+.report-entry-table{table-layout:auto;min-width:max-content}
+.report-entry-table th{position:sticky;top:0;z-index:2;background:#f5faf6}
+.report-entry-table td{padding:5px 8px}
+.report-entry-table input[type=number]{width:105px;min-width:105px;padding:7px 8px;font-variant-numeric:tabular-nums}
+.report-entry-table input:focus-visible{outline:2px solid #139270;background:#f2fff8}
+.report-entry-wrapper{overscroll-behavior-x:contain;scrollbar-gutter:stable}
+.field-help{display:block;color:#637e72;font-size:11px;line-height:1.7;font-weight:400}
+.redesigned-sidebar nav a.sidebar-link:focus-visible{outline:3px solid #93cdb5}

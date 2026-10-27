@@ -10,31 +10,28 @@ export default async function Users() {
   ]);
   return (
     <>
-      <h1>المستخدمون والصلاحيات</h1>
+      <h1>الفريق والصلاحيات</h1>
+      <p className="muted">من هنا تقدر تراجع دور كل حساب والإدارة المرتبط بيها. أي تغيير في الدور بيتسجل في سجل المراجعة.</p>
       <p className="notice">
-        الحسابات بالدعوة عبر لوحة Supabase فقط. اضبط رابط الدعوة وسياسة كلمات
-        المرور وMFA قبل أي استخدام حقيقي. تُسند الصلاحية بعد إنشاء حساب Auth. لا
-        يستطيع المدير تغيير صلاحية حسابه من هنا.
+        إضافة الحسابات الجديدة بتتم حاليًا من لوحة Supabase. لازم الحساب يكون موجود هناك قبل ما تحدد دوره هنا. لحماية النظام، محدش يقدر يغيّر دور حسابه بنفسه. الأدوار الأربعة الجديدة اللي تم الاتفاق عليها محتاجة ترقية منفصلة لقاعدة البيانات ومراجعة أمنية قبل تفعيلها.
       </p>
       <section className="card">
-        <h2>ربط حساب أو تعديل صلاحية</h2>
+        <h2>إضافة صلاحية لحساب موجود</h2>
         <form action={assignRole} className="grid">
           <label>
-            معرّف مستخدم Auth (UUID)
+            رقم الحساب في Supabase (User ID)
             <input name="user_id" required dir="ltr" />
           </label>
           <label>
-            الدور
+            صلاحية الحساب حاليًا
             <select name="role">
-              <option value="administration_data_entry">
-                مدخل بيانات الإدارة
-              </option>
-              <option value="directorate_viewer">مشاهد المديرية</option>
-              <option value="directorate_admin">مدير المديرية</option>
+              <option value="administration_data_entry">مسؤول إدارة صحية — يشوف بيانات إدارته فقط</option>
+              <option value="directorate_viewer">فريق المديرية — مشاهدة بدون تعديل</option>
+              <option value="directorate_admin">صلاحية الإدارة المركزية الحالية</option>
             </select>
           </label>
           <label>
-            الإدارة (لإدخال البيانات فقط)
+            الإدارة الصحية المرتبط بيها الحساب
             <select name="administration_id">
               <option value="">بدون إدارة لدور المديرية</option>
               {admins.map((a) => (
@@ -44,15 +41,28 @@ export default async function Users() {
               ))}
             </select>
           </label>
-          <button>حفظ الصلاحية وتسجيلها في التدقيق</button>
+          <button>حفظ الدور والإدارة</button>
         </form>
+      </section>
+      <section className="card">
+        <h2>إيه صلاحيات كل دور؟</h2>
+        <div className="table-wrap"><table>
+          <thead><tr><th>الدور المطلوب</th><th>مسموح يشوف إيه؟</th><th>مسموح يعدّل إيه؟</th><th>الحالة</th></tr></thead>
+          <tbody>
+            <tr><td>مدير إدارة الصحة المدرسية — مشرف عام</td><td>كل الإدارات والبرامج، ومراجعة عمل الفريق</td><td>إدارة الصلاحيات والاعتمادات والإعدادات</td><td>محتاج فصل عن دور المسؤول الحالي</td></tr>
+            <tr><td>مسؤول البرنامج — تشغيل ومتابعة</td><td>كل النظام والبلاغات</td><td>التشغيل والمراجعة حسب التفويض، بدون تعديل سلطة المشرف العام</td><td>محتاج تفعيل دور مستقل</td></tr>
+            <tr><td>مسؤولو الإدارات الصحية</td><td>الإدارة المربوطة بالحساب فقط</td><td>بلاغات ومستهدفات إدارتهم حسب قواعد الاعتماد والمواعيد</td><td>موجود في النظام الحالي</td></tr>
+            <tr><td>فريق المديرية</td><td>بيانات المديرية المتاحة للعرض</td><td>مش مسموح بالتعديل</td><td>موجود في النظام الحالي</td></tr>
+          </tbody>
+        </table></div>
+        <p className="field-help">ميزة «عرض الشاشة بصلاحيات مستخدم آخر» مش مفعّلة لحد ما نضيف معاينة للقراءة فقط باختبارات تمنع تجاوز صلاحيات الإدارات.</p>
       </section>
       <section className="card table-wrap">
         <table>
           <thead>
             <tr>
-              <th>معرّف المستخدم</th>
-              <th>الدور</th>
+              <th>رقم الحساب (User ID)</th>
+              <th>الدور الحالي</th>
               <th>الإدارة</th>
             </tr>
           </thead>

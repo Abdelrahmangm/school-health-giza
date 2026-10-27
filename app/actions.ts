@@ -330,6 +330,56 @@ export async function promoteImport(f: FormData) {
   const failed = (result.data as { status: string }[]).some((r) => r.status === "error");
   redirect(`/imports/${id}?msg=${failed ? "partial" : "promoted"}`);
 }
+/**
+ * Bulk handling of many batches (one per administration and sheet) from the list page.
+ * promote: turn the selected staged batches into drafts (same RPC as one by one).
+ * approve: submit and approve the drafts those batches created — directorate operators
+ * only, each through the normal transition_report RPC so audit and rules stay identical.
+ */
+export async function bulkImport(f: FormData) {
+  const op = text(f, "op");
+  const ids = [...new Set(f.getAll("batch_id").map(String))].filter((v) => z.uuid().safeParse(v).success).slice(0, 120);
+  if (!ids.length) redirect("/imports?err=NOTHING_SELECTED");
+  const { db, profile } = await session();
+  if (op === "approve" && !isOperator(profile.role)) redirect("/imports?err=FORBIDDEN");
+  const { data: batches } = await db.from("import_batches").select("id,status,result").in("id", ids);
+  let done = 0;
+  let failed = 0;
+  if (op === "promote") {
+    for (const b of batches ?? []) {
+      if (b.status !== "staged" && b.status !== "partial") continue;
+      const r = await rpc("promote_import_batch", { b: b.id });
+      const bad = !r.ok || (r.data as { status: string }[]).some((x) => x.status === "error");
+      if (bad) failed++;
+      else done++;
+    }
+    redirect(`/imports?msg=${failed ? "bulk_partial" : "bulk_promoted"}&done=${done}&failed=${failed}`);
+  }
+  if (op === "approve") {
+    const revisionIds = [
+      ...new Set(
+        (batches ?? []).flatMap((b) => ((b.result ?? []) as { revision_id?: string }[]).flatMap((x) => (x.revision_id ? [x.revision_id] : []))),
+      ),
+    ];
+    const { data: revisions } = revisionIds.length
+      ? await db.from("submission_revisions").select("id,status").in("id", revisionIds)
+      : { data: [] as { id: string; status: string }[] };
+    for (const rev of revisions ?? []) {
+      if (rev.status === "draft" || rev.status === "needs_correction") {
+        const submitted = await rpc("transition_report", { r: rev.id, action: "submit", comment: "" });
+        if (!submitted.ok) {
+          failed++;
+          continue;
+        }
+      } else if (rev.status !== "provisional") continue;
+      const approved = await rpc("transition_report", { r: rev.id, action: "approve", comment: "استيراد من شيتات المديرية بعد المراجعة" }, { operator: true });
+      if (approved.ok) done++;
+      else failed++;
+    }
+    redirect(`/imports?msg=${failed ? "bulk_partial" : "bulk_approved"}&done=${done}&failed=${failed}`);
+  }
+  redirect("/imports?err=GENERIC");
+}
 export async function discardImport(f: FormData) {
   const id = uuid(f, "batch_id");
   finish(await rpc("discard_import_batch", { b: id, reason: text(f, "reason") }), "/imports/" + id, "discarded");

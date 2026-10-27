@@ -1,6 +1,7 @@
 // Clear Egyptian Arabic messages for database/server error codes (safe for client and server).
 /** Maps raw database error codes to clear Egyptian Arabic messages shown in the UI. */
 export const errorMessages: Record<string, string> = {
+  NOTHING_SELECTED: "اختار دفعة واحدة على الأقل من الجدول.",
   FORBIDDEN: "حسابك مش مسموح له بالعملية دي.",
   REPORT_LOCKED: "البلاغ ده اتقفل (الأحد 4 العصر بتوقيت القاهرة). اطلب من المديرية إعادة فتحه بسبب واضح.",
   NOT_EDITABLE: "النسخة دي مش قابلة للتعديل دلوقتي.",
@@ -46,6 +47,9 @@ export const noticeMessages: Record<string, string> = {
   password_updated: "اتغيّرت كلمة السر بنجاح.",
   staged: "اتحفظت الدفعات في منطقة التجهيز. راجع المقارنة قبل التحويل لمسودات.",
   promoted: "اتحوّلت البيانات لمسودات بلاغات. افتح كل بلاغ، راجعه، وابعته للاعتماد.",
+  bulk_promoted: "الدفعات المحددة اتحوّلت لمسودات بلاغات.",
+  bulk_approved: "البلاغات بتاعة الدفعات المحددة اتبعتت واتعتمدت.",
+  bulk_partial: "جزء اتنفذ وجزء محتاج مراجعة — افتح الدفعات اللي حالتها «اتحوّل جزء منها».",
   partial: "اتحوّل جزء من البيانات، وفيه أسابيع محتاجة مراجعة؛ شوف التفاصيل تحت.",
   discarded: "اتلغت الدفعة واتسجل السبب.",
   program_saved: "اتحفظ إصدار جديد للبرنامج. البيانات القديمة زي ما هي.",

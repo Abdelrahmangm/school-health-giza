@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { filters, reference, session } from "@/lib/data";
-import { authorize } from "@/lib/domain";
+import { authorize, isOperator } from "@/lib/domain";
+import { bulkImport } from "@/app/actions";
+import { SelectAll } from "@/components/select-all";
 import { ImportWizard } from "@/components/import-wizard";
 import { Flash } from "@/components/flash";
 
@@ -16,9 +18,9 @@ export default async function Imports({ searchParams }: { searchParams: Promise<
   const f = filters({}, ref.years);
   const { data } = await db
     .from("import_batches")
-    .select("id,administration_id,school_year_id,created_at,status,source_name,source_sha256")
+    .select("id,administration_id,school_year_id,created_at,status,source_name,source_sha256,options")
     .order("created_at", { ascending: false })
-    .limit(60);
+    .limit(120);
   const batches = data ?? [];
   const adminName = new Map(ref.administrations.map((a) => [a.id, a.name_ar]));
   return (
@@ -45,13 +47,29 @@ export default async function Imports({ searchParams }: { searchParams: Promise<
         defaultYear={f.year}
         ownAdministration={profile.role === "administration_data_entry" ? profile.administration_id ?? undefined : undefined}
       />
-      <section className="card table-wrap">
+      <form action={bulkImport} className="card table-wrap">
         <h2>الدفعات المحفوظة</h2>
+        <p className="field-help">
+          علّم على الدفعات اللي راجعتها. «تحويل لمسودات» بيعمل نفس اللي بيتعمل من صفحة كل دفعة. «إرسال واعتماد» بيبعت المسودات اللي اتعملت من الدفعات دي
+          ويعتمدها، وكل خطوة بتتسجل في سجل العمليات. الأفضل تحوّل كل الدفعات (العام والأزهري) الأول، وبعدين تعتمد.
+        </p>
+        <div className="actions">
+          <SelectAll name="batch_id" />
+          <button name="op" value="promote">تحويل المحدد لمسودات</button>
+          {isOperator(profile.role) && (
+            <button name="op" value="approve" className="secondary">
+              إرسال واعتماد بلاغات المحدد
+            </button>
+          )}
+        </div>
         <table>
           <thead>
             <tr>
+              <th>
+                <span className="sr-only">تحديد</span>
+              </th>
               <th>الإدارة</th>
-              <th>الملف</th>
+              <th>الملف / الشيت</th>
               <th>الحالة</th>
               <th>التاريخ</th>
               <th></th>
@@ -60,8 +78,14 @@ export default async function Imports({ searchParams }: { searchParams: Promise<
           <tbody>
             {batches.map((b) => (
               <tr key={b.id}>
+                <td>
+                  {b.status !== "discarded" && <input type="checkbox" name="batch_id" value={b.id} aria-label={"تحديد دفعة " + adminName.get(b.administration_id)} />}
+                </td>
                 <td>{adminName.get(b.administration_id)}</td>
-                <td>{b.source_name || "—"}</td>
+                <td>
+                  {b.source_name || "—"}
+                  {(b.options as { sheet?: string } | null)?.sheet ? ` · ${(b.options as { sheet?: string }).sheet}` : ""}
+                </td>
                 <td>
                   <span className={"badge" + (b.status === "staged" ? " yellow" : b.status === "discarded" ? " red" : "")}>{statusLabels[b.status] ?? b.status}</span>
                 </td>
@@ -74,7 +98,7 @@ export default async function Imports({ searchParams }: { searchParams: Promise<
           </tbody>
         </table>
         {!batches.length && <p className="empty">لسه مفيش دفعات.</p>}
-      </section>
+      </form>
     </>
   );
 }

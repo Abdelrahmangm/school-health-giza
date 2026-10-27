@@ -34,6 +34,9 @@ export function ImportForm({
         أسماء أو بيانات شخصية. الصيغة المحددة أعلاه فقط؛ لا يوجد ربط مباشر
         بمصادر Google Sheets.
       </p>
+      <label>اختار ملف CSV من جهازك (اختياري، أو انسخ محتواه تحت)
+        <input type="file" accept=".csv,text/csv" onChange={async (event)=>{const file=event.target.files?.[0]; if(!file) return; if(file.size>100000){setError("الملف كبير جدًا؛ الحد الأقصى 100 كيلوبايت.");return;} const content=await file.text();setSource(content.replace(/^\uFEFF/,""));setPreview(null);setError("");}} />
+      </label>
       <label>
         CSV مجمّع (500 صف بحد أقصى)
         <textarea

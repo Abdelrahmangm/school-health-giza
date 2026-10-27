@@ -2,6 +2,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { createClient } from "@supabase/supabase-js";
 import { session } from "@/lib/data";
 import { supabase, configured } from "@/lib/supabase";
 import { authorize, linesSchema, previewImport, isOperator, isSupervisor } from "@/lib/domain";
@@ -138,6 +139,44 @@ export async function createYear(f: FormData) {
     },
     true,
   );
+}
+export async function inviteAccount(f: FormData) {
+  // Privileged invitation: server action + verified supervisor session, never a browser key.
+  const {profile}=await session();
+  if (!isSupervisor(profile.role)) throw new Error("FORBIDDEN");
+  const name=z.string().trim().min(2).max(120).parse(text(f,"full_name"));
+  const email=z.email().parse(text(f,"email").toLowerCase());
+  const role=z.enum(["directorate_supervisor","program_manager","administration_data_entry","directorate_viewer"]).parse(text(f,"role"));
+  const administration=text(f,"administration_id")?uuid(f,"administration_id"):null;
+  if ((role==="administration_data_entry") !== Boolean(administration))
+    throw new Error("لازم تختار إدارة صحية لمسؤول الإدارة فقط.");
+  const secret=process.env.SUPABASE_SECRET_KEY;
+  const url=process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!secret || !url) throw new Error("خدمة الدعوات لسه محتاجة إعداد مفتاح الخادم في Vercel.");
+  const admin=createClient(url,secret,{
+    auth:{autoRefreshToken:false,persistSession:false,detectSessionInUrl:false}
+  });
+  // Only the approved production domain is used as the return destination.
+  const {data,error}=await admin.auth.admin.inviteUserByEmail(email,{
+    data:{full_name:name},
+    redirectTo:"https://school-health-giza.vercel.app/auth/callback"
+  });
+  if(error || !data.user?.id) {
+    console.error("Invite failed",error?.code);
+    throw new Error("تعذر إرسال الدعوة. راجع الإيميل وإعدادات إرسال البريد.");
+  }
+  // Place the permission in the trusted DB table; user_metadata is never authorization.
+  const {error:roleError}=await admin.from("user_profiles").insert({
+    user_id:data.user.id,role,administration_id:administration
+  });
+  if(roleError){
+    console.error("Profile creation failed",roleError.code);
+    // Remove the newly invited account if its role could not be provisioned.
+    await admin.auth.admin.deleteUser(data.user.id);
+    throw new Error("ماقدرتش أحفظ الدور؛ تم إلغاء الحساب الجديد. جرّب تاني.");
+  }
+  revalidatePath("/users");
+  redirect("/users?invited=1");
 }
 export async function assignRole(f: FormData) {
   const {profile}=await session();

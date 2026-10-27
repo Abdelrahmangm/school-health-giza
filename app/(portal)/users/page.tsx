@@ -2,12 +2,14 @@ import Link from "next/link";
 import { session, all } from "@/lib/data";
 import { labels, isOperator, isSupervisor, type Profile, type Administration } from "@/lib/domain";
 import { assignRole } from "@/app/actions";
-export default async function Users() {
+export default async function Users({searchParams}:{searchParams:Promise<{invited?:string}>}) {
  const {profile}=await session();
+ const params=await searchParams;
  if (!isOperator(profile.role)) return <h1>غير مصرح ليك بفتح الصفحة دي</h1>;
  const [users,admins]=await Promise.all([all<Profile>("user_profiles"),all<Administration>("administrations")]);
  return <>
   <h1>المستخدمون والصلاحيات</h1>
+  {params.invited==="1"&&<p className="notice" role="status">تم تسجيل الحساب وإرسال الدعوة للإيميل. الشخص يفتح الرسالة ويحدد كلمة السر بنفسه.</p>}
   <p className="muted">من هنا تقدر تعرف مين له حق يشوف إيه في السيستم، وتراجع الإدارة المرتبطة بكل حساب. صلاحيات الإدارات بتتراجع على قاعدة البيانات، مش على شكل الشاشة بس.</p>
   <section className="card">
    <h2>الأدوار المتاحة في النظام</h2>

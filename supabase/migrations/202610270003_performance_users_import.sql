@@ -298,6 +298,8 @@ revoke execute on function public.sees_all_administrations(),public.is_operator(
   public.report_facts(uuid,text,date,date,boolean,text,text),public.report_payload(uuid,uuid,date,date,text,text,text,text),public.register_invited_user(uuid,text,text,uuid),
   public.update_user_access(uuid,text,uuid,text,text),public.import_row_valid(jsonb,uuid),public.stage_import_batch(uuid,uuid,jsonb,jsonb),
   public.discard_import_batch(uuid,text),public.promote_import_batch(uuid) from public,anon;
+-- Supabase grants new functions to authenticated by default; keep the validator internal.
+revoke execute on function public.import_row_valid(jsonb,uuid) from authenticated;
 grant execute on function public.sees_all_administrations(),public.is_operator(),public.is_supervisor(),public.my_administration(),
   public.report_facts(uuid,text,date,date,boolean,text,text),public.report_payload(uuid,uuid,date,date,text,text,text,text),public.register_invited_user(uuid,text,text,uuid),
   public.update_user_access(uuid,text,uuid,text,text),public.stage_import_batch(uuid,uuid,jsonb,jsonb),

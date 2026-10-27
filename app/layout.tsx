@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import "@fontsource-variable/readex-pro";
 import "./globals.css";
 import "./redesign.css";
 export const metadata: Metadata = {

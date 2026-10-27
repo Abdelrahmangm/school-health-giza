@@ -1,130 +1,272 @@
 import Link from "next/link";
-import {facts,filters,reference,submissionPage,targetsFor} from "@/lib/data";
-import {aggregateFacts,labels,latestPrograms} from "@/lib/domain";
-import {FilterForm} from "@/components/filters";
-import {UiIcon} from "@/components/portal-nav";
-import {Flash} from "@/components/flash";
+import { facts, filters, reference, session, submissionPage, targetsFor } from "@/lib/data";
+import { aggregateFacts, labels, type FactSet } from "@/lib/domain";
+import { FilterForm } from "@/components/filters";
+import { UiIcon } from "@/components/portal-nav";
+import { Flash } from "@/components/flash";
+import { AreaChart, Gauge, Radar, Sparkline } from "@/components/charts";
 
-const fmt=(value:number)=>value.toLocaleString("ar-EG",{maximumFractionDigits:1});
-const percent=(value:number|null)=>value===null?"—":fmt(value)+"٪";
+const fmt = (value: number) => value.toLocaleString("ar-EG", { maximumFractionDigits: 1 });
+const percent = (value: number | null) => (value === null ? "—" : fmt(value) + "٪");
+const dm = (iso: string) => {
+  const [, m, d] = iso.split("-").map(Number);
+  return `${d.toLocaleString("ar-EG")}/${m.toLocaleString("ar-EG")}`;
+};
 
-export default async function Dashboard({searchParams}:{searchParams:Promise<Record<string,string|undefined>>}){
- const [ref,params]=await Promise.all([reference(),searchParams]);
- const d={...ref};
- const f=filters(params,d.years);
- // Three small parallel queries instead of downloading every table: totals are summed in PostgreSQL.
- const [data,targets,latest]=await Promise.all([facts(f),targetsFor(f.year),submissionPage({year:f.year,administration:f.administration,page:1,size:5})]);
- const m=aggregateFacts(data,targets,f);
- const selectedYear=d.years.find(y=>y.id===f.year)?.label||"العام الدراسي";
- const comparisons=d.administrations
-  .filter(a=>!f.administration||a.id===f.administration)
-  .map(a=>({id:a.id,name:a.name_ar,values:aggregateFacts(data,targets,{...f,administration:a.id})}));
- const programs=latestPrograms(d.programs)
-  .filter(p=>p.school_year_id===f.year&&p.enabled)
-  .slice(0,4)
-  .map(p=>({id:p.id,name:p.name_ar,values:aggregateFacts(data,targets,{...f,program:p.code,grade:""})}));
- const recent=latest.rows.flatMap(s=>{
-   const revision=[...s.submission_revisions].sort((a,b)=>b.revision_number-a.revision_number)[0];
-   return revision?[{submission:s,revision}]:[];
+export default async function Dashboard({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
+  const [{ profile }, ref, params] = await Promise.all([session(), reference(), searchParams]);
+  const f = filters(params, ref.years);
+  // One weekly query feeds the totals, the weekly chart and every administration's trend.
+  const [data, targets, latest] = await Promise.all([
+    facts(f, true),
+    targetsFor(f.year),
+    submissionPage({ year: f.year, administration: f.administration, page: 1, size: 4 }),
+  ]);
+  const m = aggregateFacts(data, targets, f);
+  const weeks = [...new Set(data.facts.map((x) => x.w).filter((w): w is string => !!w))]
+    .filter((w) => (!f.from || w >= f.from) && (!f.to || w <= f.to))
+    .sort();
+  const forWeek = (set: FactSet, w: string): FactSet => ({ facts: set.facts.filter((x) => x.w === w), reports: [] });
+  const weekly = weeks.map((w) => aggregateFacts(forWeek(data, w), [], f).screened);
+  const yearLabel = ref.years.find((y) => y.id === f.year)?.label ?? "";
+  const ranking = ref.administrations
+    .filter((a) => !f.administration || a.id === f.administration)
+    .map((a) => {
+      const own = { ...f, administration: a.id };
+      return {
+        id: a.id,
+        name: a.name_ar,
+        values: aggregateFacts(data, targets, own),
+        trend: weeks.map((w) => aggregateFacts(forWeek(data, w), [], own).screened),
+      };
+    })
+    .sort((x, y) => (y.values.achievement ?? -1) - (x.values.achievement ?? -1) || y.values.screened - x.values.screened);
+  const topRates = Object.entries(m.rates)
+    .filter(([, v]) => v !== null)
+    .map(([k, v]) => ({ label: labels[k] || k, value: v as number }))
+    .sort((a, b) => b.value - a.value);
+  const recent = latest.rows.flatMap((s) => {
+    const revision = [...s.submission_revisions].sort((a, b) => b.revision_number - a.revision_number)[0];
+    return revision ? [{ submission: s, revision }] : [];
   });
- const adminName=(id:string)=>d.administrations.find(a=>a.id===id)?.name_ar||"إدارة غير معروفة";
- const cap=(value:number|null)=>Math.max(0,Math.min(100,value||0));
- return <div className="dashboard-new">
-  <Flash params={params}/>
-  <section className="dashboard-hero">
-   <div className="dashboard-hero-copy">
-    <span className="eyebrow">مديرية الشؤون الصحية بالجيزة · لوحة متابعة الفحص</span>
-    <h1>إدارة الصحة المدرسية والشباب</h1>
-    <p>البلاغات الأسبوعية، نسب الإنجاز والمستهدفات في مكان واحد</p>
-   </div>
-   <div className="dashboard-hero-right">
-    <div className="dashboard-hero-year"><span>العام الدراسي المختار</span><strong>{selectedYear}</strong></div>
-    <div className="dashboard-hero-circle" aria-hidden="true"><UiIcon name="programs" size={42}/></div>
-   </div>
-  </section>
-  <details className="dashboard-filters">
-   <summary>تصفية البيانات حسب العام والبرنامج والقطاع والإدارة والفترة</summary>
-   <FilterForm {...d} value={f}/>
-  </details>
-  <section className="metrics dashboard-kpis" aria-label="المؤشرات من قاعدة البيانات">
-   <div className="metric dashboard-kpi">
-    <div><span>المفحوصون خلال الفترة</span><strong>{fmt(m.screened)}</strong><small>{labels[f.program]||f.program} · {labels[f.sector]||f.sector}</small></div>
-    <span className="dashboard-kpi-icon"><UiIcon name="users" size={23}/></span>
-   </div>
-   <div className="metric dashboard-kpi">
-    <div><span>المستهدف السنوي المعتمد</span><strong>{fmt(m.target)}</strong><small>المستهدف لا يُجمع أسبوعيًا</small></div>
-    <span className="dashboard-kpi-icon"><UiIcon name="targets" size={23}/></span>
-   </div>
-   <div className="metric dashboard-kpi">
-    <div><span>نسبة الإنجاز</span><strong>{percent(m.achievement)}</strong><small>المفحوصون ÷ المستهدف السنوي</small></div>
-    <span className="dashboard-kpi-icon"><UiIcon name="analytics" size={23}/></span>
-   </div>
-   <div className="metric dashboard-kpi">
-    <div><span>البلاغات المحتسبة</span><strong>{fmt(m.reportCount)}</strong><small>نسخة محتسبة واحدة لكل إدارة وأسبوع</small></div>
-    <span className="dashboard-kpi-icon"><UiIcon name="reports" size={23}/></span>
-   </div>
-  </section>
-  <section className="card workflow-box">
-   <div className="dashboard-card-heading"><h2>دورة البلاغ الأسبوعي</h2><Link href="/reports">عرض البلاغات</Link></div>
-   <div className="dashboard-workflow">
-    {["تجميع البيانات من الإدارة","رفع البلاغ الأسبوعي","مراجعة مديرية الصحة","اعتماد النسخة الرسمية"].map((step,index)=>
-     <div key={step} className="dashboard-stage"><span className="dashboard-stage-bubble">{index+1}</span><span>{step}</span></div>
-    )}
-   </div>
-   <small>يبدأ الأسبوع الأحد وينتهي السبت، وتُقفل التعديلات الأحد التالي الساعة 4:00 مساءً بتوقيت القاهرة. الاعتماد منفصل عن الإغلاق.</small>
-  </section>
-  <div className="dashboard-columns">
-   <section className="card">
-    <div className="dashboard-card-heading"><h2>مقارنة الإدارات الصحية</h2><Link href="/analytics">عرض الكل</Link></div>
-    {comparisons.length?
-     <div className="dashboard-admin">{comparisons.slice(0,7).map(a=>
-      <div className="dashboard-admin-row" key={a.id}>
-       <strong>{a.name}</strong>
-       <div className="dashboard-admin-track" role="img" aria-label={"نسبة الإنجاز "+percent(a.values.achievement)}><i style={{width:cap(a.values.achievement)+"%"}}/></div>
-       <span className="percent">{percent(a.values.achievement)}</span>
-      </div>)}</div>
-     :<p className="empty">لا توجد إدارات متاحة لهذا الحساب.</p>}
-    <small>النسب محسوبة من البلاغات والمستهدفات المعتمدة وفق الفلاتر.</small>
-   </section>
-   <section className="card">
-    <div className="dashboard-card-heading"><h2>البرامج الصحية</h2><Link href="/programs">عرض الكل</Link></div>
-    {programs.length?<div className="dashboard-programs">{programs.map(p=>
-     <div className="dashboard-program-tile" key={p.id}>
-      <b>{p.name}</b><strong>{fmt(p.values.screened)}</strong><small>مفحوص خلال الفترة</small>
-      <p><span className="badge">{percent(p.values.achievement)} من المستهدف</span></p>
-     </div>)}</div>:<p className="empty">لا توجد برامج نشطة لهذا العام.</p>}
-    <small>فحص إبصار KG2 برنامج مستقل عن الفحص الشامل.</small>
-   </section>
-   <section className="card">
-    <div className="dashboard-card-heading"><h2>إنجاز المستهدف</h2><Link href="/targets">المستهدفات</Link></div>
-    <div className="dashboard-progress-ring" style={{background:"conic-gradient(#36b995 "+cap(m.achievement)+"%,#e6f2eb 0)"}}>
-     <div className="dashboard-progress-center"><strong>{percent(m.achievement)}</strong><small>نسبة الإنجاز</small></div>
+  const adminName = (id: string) => ref.administrations.find((a) => a.id === id)?.name_ar || "إدارة غير معروفة";
+  const canWrite = profile.role !== "directorate_viewer";
+  const hues = ["teal", "coral", "mustard"];
+
+  return (
+    <div className="dash">
+      <div className="dash-grid">
+        {/* Column 1 */}
+        <section className="dash-col">
+          <Flash params={params} />
+          <div className="teal-card metric">
+            <div className="teal-card-top">
+              <span className="chip" aria-hidden="true" />
+              <span className="wave" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M8 8.5a5 5 0 0 1 0 7 M12 6a8.5 8.5 0 0 1 0 12 M16 3.5a12 12 0 0 1 0 17" />
+                </svg>
+              </span>
+            </div>
+            <span className="teal-card-label">المفحوصين خلال الفترة</span>
+            <strong>{fmt(m.screened)}</strong>
+            <div className="teal-card-foot">
+              <span>
+                {labels[f.program] || f.program} · {labels[f.sector] || f.sector}
+              </span>
+              <span>{yearLabel}</span>
+            </div>
+          </div>
+          {canWrite ? (
+            <Link href="/reports/new" className="coral-card">
+              <span className="coral-icon">
+                <UiIcon name="file" size={30} stroke={1.5} />
+                <span className="coral-plus">+</span>
+              </span>
+              <span>
+                <b>سجّل بلاغ الأسبوع وتابع الإنجاز.</b>
+                <small>
+                  بلاغ جديد <UiIcon name="arrow" size={15} />
+                </small>
+              </span>
+            </Link>
+          ) : (
+            <Link href="/analytics" className="coral-card">
+              <span className="coral-icon">
+                <UiIcon name="analytics" size={30} stroke={1.5} />
+              </span>
+              <span>
+                <b>شوف تقارير الإدارات والمؤشرات.</b>
+                <small>
+                  التقارير <UiIcon name="arrow" size={15} />
+                </small>
+              </span>
+            </Link>
+          )}
+          <div className="quick-tiles">
+            {[
+              { href: "/targets", icon: "targets", label: "المستهدفات" },
+              { href: canWrite ? "/imports" : "/reports", icon: canWrite ? "imports" : "reports", label: canWrite ? "الاستيراد" : "البلاغات" },
+              { href: "/analytics", icon: "export", label: "التصدير" },
+            ].map((t) => (
+              <Link key={t.href} href={t.href} className="quick-tile">
+                <span className="quick-icon">
+                  <UiIcon name={t.icon} size={30} stroke={1.4} />
+                </span>
+                <b>{t.label}</b>
+                <span className="quick-plus" aria-hidden="true">
+                  <UiIcon name="plus" size={13} stroke={2} />
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* Column 2 */}
+        <section className="dash-col dash-col-mid">
+          <Gauge value={m.achievement} title="نسبة الإنجاز" caption="من المستهدف السنوي المعتمد" />
+          <div className="panel">
+            <div className="panel-head">
+              <h2>المفحوصين أسبوع بأسبوع</h2>
+            </div>
+            <AreaChart series={weekly} labels={weeks.map(dm)} title="عدد المفحوصين في كل أسبوع" />
+          </div>
+          <div className="panel">
+            <div className="panel-head">
+              <h2>أحدث البلاغات</h2>
+              <Link href="/reports" aria-label="كل البلاغات" className="arrow-link">
+                <UiIcon name="arrow" size={20} />
+              </Link>
+            </div>
+            {recent.length ? (
+              <div className="tx-list">
+                {recent.map(({ submission, revision }) => (
+                  <Link key={revision.id} href={"/reports/" + revision.id} className="tx">
+                    <span className="tx-icon">
+                      <UiIcon name="reports" size={18} />
+                    </span>
+                    <span className="tx-main">
+                      <small>أسبوع {dm(submission.week_start)}</small>
+                      <b>{adminName(submission.administration_id)}</b>
+                    </span>
+                    <span className={"tx-status s-" + revision.status}>{labels[revision.status] || revision.status}</span>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="empty small">لسه مفيش بلاغات للعام ده.</p>
+            )}
+          </div>
+        </section>
+
+        {/* Column 3 */}
+        <section className="dash-col dash-col-end">
+          <div className="split">
+            <div className="split-cell">
+              <div className="panel-head">
+                <h2>
+                  أعلى
+                  <br />
+                  المؤشرات
+                </h2>
+                <Link href="/analytics" aria-label="كل المؤشرات" className="arrow-link">
+                  <UiIcon name="arrow" size={20} />
+                </Link>
+              </div>
+              <Radar items={topRates} />
+            </div>
+            <div className="split-cell">
+              <div className="panel-head">
+                <h2>المستهدف</h2>
+              </div>
+              <span className="round-icon coral">
+                <UiIcon name="targets" size={20} />
+              </span>
+              <div className="metric target-figure">
+                <strong>{fmt(m.target)}</strong>
+              </div>
+              <span className="up">
+                <UiIcon name="trend" size={15} /> {percent(m.achievement)} <small>إنجاز</small>
+              </span>
+            </div>
+          </div>
+          <div className="panel">
+            <div className="panel-head">
+              <h2>ترتيب الإدارات</h2>
+              <Link href="/analytics" aria-label="مقارنة كل الإدارات" className="arrow-link">
+                <UiIcon name="arrow" size={20} />
+              </Link>
+            </div>
+            {ranking.length ? (
+              <ol className="rank">
+                {ranking.slice(0, 6).map((a, i) => (
+                  <li key={a.id}>
+                    <span className={"rank-badge " + hues[i % 3]}>{a.name.replace(/^ال/, "").slice(0, 1)}</span>
+                    <span className="rank-name">
+                      <b>{a.name}</b>
+                      <small>{fmt(a.values.screened)} مفحوص</small>
+                    </span>
+                    <span className="rank-num">
+                      <b>{percent(a.values.achievement)}</b>
+                      <small>{fmt(a.values.target)}</small>
+                    </span>
+                    <Sparkline values={a.trend} label={"اتجاه " + a.name} />
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="empty small">مفيش إدارات متاحة للحساب ده.</p>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <section className="dash-wide">
+        <details className="filter-panel">
+          <summary>
+            <UiIcon name="analytics" size={16} /> تصفية: {yearLabel} · {labels[f.program] || f.program} · {labels[f.sector] || f.sector} ·{" "}
+            {f.mode === "official" ? "المعتمد بس" : "الأولي المنتظر"}
+          </summary>
+          <FilterForm {...ref} value={f} />
+        </details>
+        <div className="panel">
+          <div className="panel-head">
+            <h2>نتايج المؤشرات الطبية</h2>
+            <Link href="/analytics" className="arrow-link" aria-label="التقارير">
+              <UiIcon name="arrow" size={20} />
+            </Link>
+          </div>
+          {Object.keys(m.findings).length ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>المؤشر</th>
+                    <th>العدد</th>
+                    <th>النسبة من المفحوصين</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(m.findings)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([key, value]) => (
+                      <tr key={key}>
+                        <td>{labels[key] || key}</td>
+                        <td>{fmt(value)}</td>
+                        <td>{percent(m.rates[key])}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="empty small">مفيش مؤشرات متسجلة في الفترة دي.</p>
+          )}
+          <small className="muted">
+            الطفل ممكن يتسجل في أكتر من مؤشر، فمجموع المؤشرات مش عدد أطفال. {f.mode === "official" ? "الأرقام دي المعتمدة بس." : "دي أرقام أولية لسه مستنية الاعتماد."}
+          </small>
+        </div>
+      </section>
     </div>
-    <div className="dashboard-progress-stats">
-     <div><span>المستهدف السنوي</span><b>{fmt(m.target)}</b></div>
-     <div><span>المفحوصون خلال الفترة</span><b>{fmt(m.screened)}</b></div>
-     <div><span>الفرق حتى المستهدف</span><b>{fmt(Math.max(0,m.target-m.screened))}</b></div>
-    </div>
-   </section>
-  </div>
-  <div className="two">
-   <section className="card">
-    <div className="dashboard-card-heading"><h2>نتائج المؤشرات الطبية</h2><Link href="/analytics">التقارير والإحصاءات</Link></div>
-    {Object.keys(m.findings).length?<div className="table-wrap"><table><thead><tr><th>المؤشر</th><th>العدد</th><th>النسبة من المفحوصين</th></tr></thead>
-     <tbody>{Object.entries(m.findings).map(([key,value])=><tr key={key}><td>{labels[key]||key}</td><td>{fmt(value)}</td><td>{percent(m.rates[key])}</td></tr>)}</tbody>
-    </table></div>:<p className="empty">لا توجد مؤشرات مسجلة ضمن الترشيح.</p>}
-    <small>قد يُسجل أكثر من مؤشر لنفس الطفل؛ مجموع المؤشرات لا يمثل عدد أطفال مختلفين.</small>
-   </section>
-   <section className="card">
-    <div className="dashboard-card-heading"><h2>أحدث البلاغات</h2><Link href="/reports">عرض الكل</Link></div>
-    {recent.length?<div className="dashboard-recent">{recent.map(({submission,revision})=>
-     <Link key={revision.id} href={"/reports/"+revision.id} className="dashboard-recent-row">
-      <span className="dashboard-document-icon"><UiIcon name="reports" size={19}/></span>
-      <span><strong>{adminName(submission.administration_id)}</strong><small>أسبوع {submission.week_start} · {d.years.find(y=>y.id===submission.school_year_id)?.label}</small></span>
-      <span className={"badge"+(revision.status==="provisional"?" yellow":revision.status==="needs_correction"?" red":"")}>{labels[revision.status]||revision.status}</span>
-     </Link>)}</div>:<p className="empty">لم تُرسل بلاغات لهذا العام بعد.</p>}
-   </section>
-  </div>
-  <div className="dashboard-data-note">{f.mode==="official"?"تعرض هذه اللوحة الأرقام المعتمدة فقط.":"أنت تشاهد نسخ البلاغات الأولية المنتظرة للاعتماد."} جميع الأرقام مستمدة من البيانات المتاحة لصلاحيات هذا الحساب؛ لا تُعرض أرقام نموذجية.</div>
- </div>;
+  );
 }

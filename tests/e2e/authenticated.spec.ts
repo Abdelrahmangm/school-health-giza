@@ -27,7 +27,7 @@ test("DEMO end-to-end: scoped entry → review → official amendment → annual
     await login(entry, "entry");
     console.log("DEMO: entry authenticated");
     await entry
-      .getByRole("link", { name: "البلاغات الأسبوعية", exact: true })
+      .getByRole("link", { name: "البلاغات", exact: true })
       .click();
     await entry.getByRole("link", { name: "+ بلاغ جديد" }).click();
     await entry
@@ -177,6 +177,8 @@ test("DEMO end-to-end: scoped entry → review → official amendment → annual
       ).toBeVisible();
     }
     await entry.goto("/imports");
+    // The page streams in after the loading skeleton; wait until it is interactive.
+    await entry.waitForLoadState("networkidle");
     const week = weekFor(new Date().toISOString());
     // Upload a synthetic DEMO CSV, review, stage, compare, then promote to a DRAFT only.
     await entry.locator('input[type="file"]').setInputFiles({

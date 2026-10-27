@@ -67,7 +67,7 @@ test("supervisor invites by name/e-mail/role, invitee sets own password, access 
     // Scoped to الوراق only, no user administration menu.
     await user.goto("/reports/new");
     await expect(user.getByLabel("الإدارة").locator("option")).toHaveText(["الوراق"]);
-    await expect(user.getByRole("link", { name: "المستخدمون والصلاحيات" })).toHaveCount(0);
+    await expect(user.getByRole("link", { name: "المستخدمين", exact: true })).toHaveCount(0);
 
     // Forgot password: generic confirmation, then a working reset link.
     await userContext.clearCookies();

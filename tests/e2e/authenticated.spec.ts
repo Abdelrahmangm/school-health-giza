@@ -177,6 +177,8 @@ test("DEMO end-to-end: scoped entry → review → official amendment → annual
       ).toBeVisible();
     }
     await entry.goto("/imports");
+    // Waiting for hydration prevents input events from being lost during slow CI runs.
+    await expect(entry.locator("form[data-hydrated]")).toHaveAttribute("data-hydrated", "true");
     const week = weekFor(new Date().toISOString());
     await entry
       .getByRole("textbox", { name: /CSV مجمّع/ })
